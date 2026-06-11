@@ -39,7 +39,14 @@ async function loadTexts() {
   if (await dbAvailable()) {
     const { data } = await supabase.from('texts').select('*').order('created_at')
     if (data?.length) {
-      texts.value = data.filter(t => t.source === 'builtin')
+      // 班级范围：全站文稿对所有人可见；教师私有文稿仅对其班级学生（及本人）可见
+      let classTeacherId = null
+      if (user.user?.class_id) {
+        const { data: cls } = await supabase.from('classes').select('teacher_id').eq('id', user.user.class_id).maybeSingle()
+        classTeacherId = cls?.teacher_id || null
+      }
+      texts.value = data.filter(t => t.source === 'builtin' &&
+        (t.is_global !== false || t.owner_id === user.user?.id || (classTeacherId && t.owner_id === classTeacherId)))
       myTexts.value = data.filter(t => t.source === 'user' && t.owner_id === user.user?.id)
       return
     }
@@ -47,8 +54,11 @@ async function loadTexts() {
   texts.value = LOCAL_TEXTS
 }
 
-const filteredTexts = computed(() =>
-  langFilter.value === 'all' ? texts.value : texts.value.filter(t => t.lang === langFilter.value))
+const catFilter = ref('all')
+const categories = computed(() => [...new Set(texts.value.map(t => t.category).filter(Boolean))])
+const filteredTexts = computed(() => texts.value
+  .filter(t => langFilter.value === 'all' || t.lang === langFilter.value)
+  .filter(t => catFilter.value === 'all' || t.category === catFilter.value))
 
 const drillCats = computed(() => {
   const cats = {}
@@ -185,10 +195,11 @@ const DIFF = ['', '初级', '中级', '高级']
         </n-space>
       </n-card>
 
-      <n-tabs type="line" size="large">
+      <n-card>
+      <n-tabs type="line" size="large" :pane-style="{ paddingTop: '14px' }">
         <n-tab-pane name="drill" tab="🎹 键位练习">
           <div v-for="(list, cat) in drillCats" :key="cat" style="margin-bottom: 18px">
-            <h3>{{ cat }}</h3>
+            <h3 style="margin: 6px 0 10px">{{ cat }}</h3>
             <n-space>
               <n-card v-for="d in list" :key="d.key" size="small" hoverable class="drill-card" @click="startDrill(d)">
                 {{ d.title }}
@@ -205,6 +216,10 @@ const DIFF = ['', '初级', '中级', '高级']
               <n-radio-button value="en">英文</n-radio-button>
               <n-radio-button value="num">数字符号</n-radio-button>
             </n-radio-group>
+            <n-radio-group v-if="categories.length" v-model:value="catFilter" size="small">
+              <n-radio-button value="all">全部分类</n-radio-button>
+              <n-radio-button v-for="c in categories" :key="c" :value="c">{{ c }}</n-radio-button>
+            </n-radio-group>
           </n-space>
           <div class="text-grid">
             <n-card v-for="t in filteredTexts" :key="t.id" size="small" hoverable @click="startText(t)" class="text-card">
@@ -213,6 +228,7 @@ const DIFF = ['', '初级', '中级', '高级']
               <n-space size="small">
                 <n-tag size="tiny" :type="LANG_TAG[t.lang]?.[1]" round>{{ LANG_TAG[t.lang]?.[0] }}</n-tag>
                 <n-tag size="tiny" round>{{ DIFF[t.difficulty] || '初级' }}</n-tag>
+                <n-tag v-if="t.category" size="tiny" round type="warning">{{ t.category }}</n-tag>
               </n-space>
             </n-card>
           </div>
@@ -233,6 +249,7 @@ const DIFF = ['', '初级', '中级', '高级']
           <n-empty v-else description="还没有自定义文稿，点击上方按钮创建" />
         </n-tab-pane>
       </n-tabs>
+      </n-card>
     </template>
 
     <!-- 打字阶段 -->

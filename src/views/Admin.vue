@@ -10,6 +10,7 @@ import { supabase } from '../lib/supabase'
 import { useUserStore } from '../stores/user'
 import { GAME_WORDS } from '../data/texts'
 import { clearGameWordsCache } from '../lib/gameWords'
+import { localDay } from '../lib/records'
 
 const message = useMessage()
 const user = useUserStore()
@@ -17,6 +18,7 @@ const user = useUserStore()
 const loading = ref(true)
 const classes = ref([])
 const students = ref([])
+const teachers = ref([])
 const texts = ref([])
 const tasks = ref([])
 const records = ref([])
@@ -27,10 +29,11 @@ const logs = ref([])
 async function loadAll() {
   loading.value = true
   try {
-    const today = new Date().toISOString().slice(0, 10)
-    const [c, s, t, k, r, ci, a, l] = await Promise.all([
+    const today = localDay()
+    const [c, s, te, t, k, r, ci, a, l] = await Promise.all([
       supabase.from('classes').select('*').order('name'),
       supabase.from('users').select('id, student_no, name, class_id, role').eq('role', 'student').order('student_no'),
+      supabase.from('users').select('id, student_no, name, role, created_at').in('role', ['teacher', 'super']).order('created_at'),
       supabase.from('texts').select('*').order('created_at'),
       supabase.from('tasks').select('*').order('created_at', { ascending: false }),
       supabase.from('task_records').select('*'),
@@ -39,6 +42,7 @@ async function loadAll() {
       supabase.from('practice_logs').select('user_id, kind, cpm, accuracy, created_at').eq('kind', 'practice').limit(5000),
     ])
     classes.value = c.data || []; students.value = s.data || []
+    teachers.value = te.data || []
     texts.value = t.data || []; tasks.value = k.data || []
     records.value = r.data || []; checkinsToday.value = ci.data || []
     achievements.value = a.data || []; logs.value = l.data || []
@@ -113,30 +117,63 @@ const stuClassFilter = ref(null)
 const filteredStudents = computed(() => stuClassFilter.value
   ? students.value.filter(s => s.class_id === stuClassFilter.value) : students.value)
 
-// ---- 文稿管理（新增 / 编辑） ----
+// ---- 文稿管理（新增 / 编辑 / 分类 / 班级范围） ----
 const showText = ref(false)
-const textForm = ref({ id: null, title: '', content: '', lang: 'zh', difficulty: 1 })
+const textForm = ref({ id: null, title: '', content: '', lang: 'zh', difficulty: 1, category: '' })
+// 教师仅见全站文稿与自己的文稿；超管全见
+const visibleTexts = computed(() => user.isSuper ? texts.value
+  : texts.value.filter(t => t.is_global !== false || t.owner_id === user.user.id))
+const categoryOptions = computed(() => {
+  const set = new Set(texts.value.map(t => t.category).filter(Boolean))
+  return [...set].map(c => ({ label: c, value: c }))
+})
 function newText() {
-  textForm.value = { id: null, title: '', content: '', lang: 'zh', difficulty: 1 }
+  textForm.value = { id: null, title: '', content: '', lang: 'zh', difficulty: 1, category: '' }
   showText.value = true
 }
 function editText(t) {
-  textForm.value = { id: t.id, title: t.title, content: t.content, lang: t.lang, difficulty: t.difficulty }
+  textForm.value = { id: t.id, title: t.title, content: t.content, lang: t.lang, difficulty: t.difficulty, category: t.category || '' }
   showText.value = true
 }
 async function saveText() {
   const f = textForm.value
   if (!f.title || !f.content) return message.warning('请填写标题和内容')
+  const fields = { title: f.title, content: f.content, lang: f.lang, difficulty: f.difficulty, category: f.category || '' }
   if (f.id) {
-    const { error } = await supabase.from('texts').update({ title: f.title, content: f.content, lang: f.lang, difficulty: f.difficulty }).eq('id', f.id)
+    const { error } = await supabase.from('texts').update(fields).eq('id', f.id)
     if (error) return message.error(error.message)
     message.success('文稿已更新')
   } else {
-    const { error } = await supabase.from('texts').insert({ title: f.title, content: f.content, lang: f.lang, difficulty: f.difficulty, source: 'builtin', owner_id: user.user.id })
+    // 超管添加 → 全站；教师添加 → 仅自己班级可见，超管可在列表中开放全站
+    const { error } = await supabase.from('texts').insert({ ...fields, source: 'builtin', owner_id: user.user.id, is_global: user.isSuper })
     if (error) return message.error(error.message)
-    message.success('文稿已添加')
+    message.success(user.isSuper ? '文稿已添加（全站可用）' : '文稿已添加（仅你的班级可见）')
   }
   showText.value = false
+  loadAll()
+}
+async function toggleGlobal(t, v) {
+  const { error } = await supabase.from('texts').update({ is_global: v }).eq('id', t.id)
+  if (error) return message.error(error.message)
+  t.is_global = v
+  message.success(v ? '已设为全站使用' : '已改为仅该教师班级使用')
+}
+
+// ---- 教师账号管理（超管） ----
+const teacherMap = computed(() => Object.fromEntries(teachers.value.map(t => [t.id, t])))
+async function resetTeacherPwd(t) {
+  const { data, error } = await supabase.rpc('fn_reset_password', { p_actor: user.user.id, p_user_id: t.id })
+  if (error || !data.ok) message.error('重置失败' + (data?.msg ? '：' + data.msg : ''))
+  else message.success(`${t.name} 的密码已重置为 123`)
+}
+async function renameTeacher(t) {
+  const { error } = await supabase.from('users').update({ name: t.name }).eq('id', t.id)
+  if (error) message.error(error.message)
+  else message.success('已保存')
+}
+async function removeTeacher(t) {
+  await supabase.from('users').delete().eq('id', t.id)
+  message.success('已删除教师账号')
   loadAll()
 }
 
@@ -311,16 +348,21 @@ const STATUS_TAG = { draft: ['草稿', 'default'], open: ['进行中', 'success'
 
         <!-- 文稿管理 -->
         <n-tab-pane name="texts" tab="📄 文稿管理">
-          <n-button type="primary" @click="newText" style="margin-bottom: 12px">＋ 添加文稿</n-button>
+          <n-space style="margin-bottom: 12px" align="center">
+            <n-button type="primary" @click="newText">＋ 添加文稿</n-button>
+            <span style="opacity:.55;font-size:13px">{{ user.isSuper ? '可通过"全站使用"开关控制教师文稿的可见范围' : '你添加的文稿仅对你的班级可见' }}</span>
+          </n-space>
           <n-table size="small" :single-line="false">
-            <thead><tr><th>标题</th><th>语言</th><th>难度</th><th>来源</th><th>字数</th><th>操作</th></tr></thead>
+            <thead><tr><th>标题</th><th>分类</th><th>语言</th><th>难度</th><th>来源</th><th>字数</th><th v-if="user.isSuper">全站使用</th><th>操作</th></tr></thead>
             <tbody>
-              <tr v-for="t in texts" :key="t.id">
+              <tr v-for="t in visibleTexts" :key="t.id">
                 <td>{{ t.title }}</td>
+                <td><n-tag v-if="t.category" size="tiny" round>{{ t.category }}</n-tag><span v-else style="opacity:.4">—</span></td>
                 <td>{{ LANGS.find(l => l.value === t.lang)?.label }}</td>
                 <td>{{ ['', '初级', '中级', '高级'][t.difficulty] }}</td>
-                <td>{{ t.source === 'builtin' ? '内置' : '学生' }}</td>
+                <td>{{ t.source !== 'builtin' ? '学生' : (teacherMap[t.owner_id]?.role === 'teacher' ? `教师·${teacherMap[t.owner_id].name}` : '内置') }}</td>
                 <td>{{ t.content.length }}</td>
+                <td v-if="user.isSuper"><n-switch size="small" :value="t.is_global !== false" @update:value="v => toggleGlobal(t, v)" /></td>
                 <td>
                   <n-space size="small">
                     <n-button size="tiny" @click="editText(t)">编辑</n-button>
@@ -463,14 +505,40 @@ const STATUS_TAG = { draft: ['草稿', 'default'], open: ['进行中', 'success'
 
         <!-- 教师账号（超管专属） -->
         <n-tab-pane v-if="user.isSuper" name="teachers" tab="👩‍🏫 教师账号">
-          <n-card size="small" title="创建教师账号" style="max-width: 460px">
-            <n-space vertical>
-              <n-input v-model:value="teacherForm.account" placeholder="登录账号" />
-              <n-input v-model:value="teacherForm.name" placeholder="教师姓名" />
-              <n-input v-model:value="teacherForm.password" type="password" show-password-on="click" placeholder="登录密码" />
-              <n-button type="primary" @click="createTeacher">创建</n-button>
-            </n-space>
-          </n-card>
+          <n-grid :cols="3" :x-gap="14" :y-gap="14" item-responsive responsive="screen">
+            <n-gi span="3 m:1">
+              <n-card size="small" title="创建教师账号">
+                <n-space vertical>
+                  <n-input v-model:value="teacherForm.account" placeholder="登录账号" />
+                  <n-input v-model:value="teacherForm.name" placeholder="教师姓名" />
+                  <n-input v-model:value="teacherForm.password" type="password" show-password-on="click" placeholder="登录密码" />
+                  <n-button type="primary" @click="createTeacher">创建</n-button>
+                </n-space>
+              </n-card>
+            </n-gi>
+            <n-gi span="3 m:2">
+              <n-card size="small" title="教师账号列表">
+                <n-table size="small" :single-line="false">
+                  <thead><tr><th>账号</th><th>姓名（可改）</th><th>角色</th><th>管理班级</th><th>操作</th></tr></thead>
+                  <tbody>
+                    <tr v-for="t in teachers" :key="t.id">
+                      <td>{{ t.student_no }}</td>
+                      <td><n-input v-if="t.role === 'teacher'" v-model:value="t.name" size="small" @blur="renameTeacher(t)" /><span v-else>{{ t.name }}</span></td>
+                      <td><n-tag size="tiny" round :type="t.role === 'super' ? 'warning' : 'info'">{{ t.role === 'super' ? '超级管理员' : '教师' }}</n-tag></td>
+                      <td>{{ classes.filter(c => c.teacher_id === t.id).map(c => c.name).join('、') || '—' }}</td>
+                      <td>
+                        <n-space v-if="t.role === 'teacher'" size="small">
+                          <n-button size="tiny" @click="resetTeacherPwd(t)">重置密码</n-button>
+                          <n-popconfirm @positive-click="removeTeacher(t)"><template #trigger><n-button size="tiny" type="error" quaternary>删除</n-button></template>确定删除 {{ t.name }}？其名下班级不受影响。</n-popconfirm>
+                        </n-space>
+                        <span v-else style="opacity:.4">—</span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </n-table>
+              </n-card>
+            </n-gi>
+          </n-grid>
         </n-tab-pane>
       </n-tabs>
     </n-spin>
@@ -480,9 +548,11 @@ const STATUS_TAG = { draft: ['草稿', 'default'], open: ['进行中', 'success'
       <n-space vertical>
         <n-input v-model:value="textForm.title" placeholder="文稿标题" />
         <n-space>
-          <n-select v-model:value="textForm.lang" :options="LANGS" style="width: 140px" />
-          <n-select v-model:value="textForm.difficulty" style="width: 140px"
+          <n-select v-model:value="textForm.lang" :options="LANGS" style="width: 130px" />
+          <n-select v-model:value="textForm.difficulty" style="width: 110px"
             :options="[{ label: '初级', value: 1 }, { label: '中级', value: 2 }, { label: '高级', value: 3 }]" />
+          <n-select v-model:value="textForm.category" filterable tag clearable placeholder="分类（可输入新分类）"
+            :options="categoryOptions" style="width: 200px" />
         </n-space>
         <n-input v-model:value="textForm.content" type="textarea" :rows="8" placeholder="文稿内容" />
         <n-button type="primary" @click="saveText">保存</n-button>

@@ -118,7 +118,7 @@ onBeforeUnmount(() => { clearInterval(popTimer); clearInterval(clockTimer) })
 </template>
 
 <style scoped>
-.field { max-width: 860px; margin: 0 auto; background: linear-gradient(180deg,#bbf7d0,#86efac);
+.field { max-width: 1000px; margin: 0 auto; background: linear-gradient(180deg,#bbf7d0,#86efac);
   border-radius: 12px; padding: 30px 30px 0; }
 .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; }
 .hole { position: relative; height: 150px; display: flex; align-items: flex-end; justify-content: center; }

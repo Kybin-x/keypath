@@ -37,8 +37,13 @@ create table if not exists texts (
   difficulty int not null default 1 check (difficulty between 1 and 3),
   source text not null default 'builtin' check (source in ('builtin','user')),
   owner_id uuid references users(id) on delete cascade,
+  category text default '',          -- 自定义分类
+  is_global boolean default true,    -- 全站可见；false=仅所属教师的班级可见
   created_at timestamptz default now()
 );
+-- 旧库升级（重复运行无副作用）
+alter table texts add column if not exists category text default '';
+alter table texts add column if not exists is_global boolean default true;
 
 -- ---------- 任务表 ----------
 create table if not exists tasks (

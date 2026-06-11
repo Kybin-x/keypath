@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { NCard, NGrid, NGi, NButton, NTag, NEmpty, NSpin } from 'naive-ui'
 import { useUserStore } from '../stores/user'
 import { supabase, dbAvailable } from '../lib/supabase'
+import { localDay } from '../lib/records'
 
 const router = useRouter()
 const user = useUserStore()
@@ -36,9 +37,9 @@ onMounted(async () => {
     let streak = 0
     if (ck?.length) {
       const d = new Date()
-      if (ck[0].day !== d.toISOString().slice(0, 10)) d.setDate(d.getDate() - 1)
+      if (ck[0].day !== localDay(d)) d.setDate(d.getDate() - 1)
       for (const row of ck) {
-        if (row.day === d.toISOString().slice(0, 10)) { streak++; d.setDate(d.getDate() - 1) } else break
+        if (row.day === localDay(d)) { streak++; d.setDate(d.getDate() - 1) } else break
       }
     }
     stats.value = { best: logs?.[0]?.cpm || 0, count: count || 0, streak }

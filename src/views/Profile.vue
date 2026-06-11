@@ -100,31 +100,36 @@ const weakKeys = computed(() => Object.entries(errorKeyAgg.value)
   .filter(([k]) => /^[a-z0-9;,./'[\]\\=-]$/.test(k))
   .sort((a, b) => b[1] - a[1]).slice(0, 5))
 
-// ---- 打卡日历（最近 12 周热力图） ----
-const calendar = computed(() => {
+// ---- 打卡日历（按月罗列，点亮打卡日） ----
+function ymd(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+const monthCalendars = computed(() => {
   const map = Object.fromEntries(checkins.value.map(c => [c.day, Number(c.practice_sec)]))
-  const weeks = []
   const today = new Date()
-  const start = new Date(today)
-  start.setDate(start.getDate() - start.getDay() - 7 * 11)
-  for (let w = 0; w < 12; w++) {
-    const days = []
-    for (let d = 0; d < 7; d++) {
-      const dt = new Date(start)
-      dt.setDate(start.getDate() + w * 7 + d)
-      const key = dt.toISOString().slice(0, 10)
-      days.push({ key, sec: map[key] || 0, future: dt > today })
+  const months = []
+  for (let m = 5; m >= 0; m--) {  // 最近 6 个月，最新在前
+    const first = new Date(today.getFullYear(), today.getMonth() - m, 1)
+    const daysInMonth = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate()
+    const cells = Array.from({ length: first.getDay() }, () => null)  // 周日起始留白
+    let lit = 0
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dt = new Date(first.getFullYear(), first.getMonth(), d)
+      const key = ymd(dt)
+      const sec = map[key] || 0
+      if (sec) lit++
+      cells.push({ d, key, sec, future: dt > today, today: key === ymd(today) })
     }
-    weeks.push(days)
+    months.unshift({ label: `${first.getFullYear()}年${first.getMonth() + 1}月`, cells, lit, total: daysInMonth })
   }
-  return weeks
+  return months
 })
 const streak = computed(() => {
   const set = new Set(checkins.value.map(c => c.day))
   let n = 0
   const d = new Date()
-  if (!set.has(d.toISOString().slice(0, 10))) d.setDate(d.getDate() - 1)
-  while (set.has(d.toISOString().slice(0, 10))) { n++; d.setDate(d.getDate() - 1) }
+  if (!set.has(ymd(d))) d.setDate(d.getDate() - 1)
+  while (set.has(ymd(d))) { n++; d.setDate(d.getDate() - 1) }
   return n
 })
 
@@ -198,9 +203,10 @@ function fmtSec(s) { return s >= 3600 ? `${(s / 3600).toFixed(1)}h` : `${Math.ro
     </n-space>
 
     <n-spin :show="loading">
-      <n-tabs type="line" size="large">
+      <!-- display-directive=show: 切换标签保留 DOM，避免 ECharts 实例随节点销毁导致图表消失 -->
+      <n-tabs type="line" size="large" :pane-style="{ paddingTop: '14px' }">
         <!-- 数据中心 -->
-        <n-tab-pane name="data" tab="📊 数据中心">
+        <n-tab-pane name="data" tab="📊 数据中心" display-directive="show">
           <n-grid :cols="4" :x-gap="12" :y-gap="12" item-responsive responsive="screen" style="margin-bottom: 16px">
             <n-gi span="2 m:1"><n-card size="small"><n-statistic label="最佳速度" :value="bestStats.bestCpm"><template #suffix>CPM</template></n-statistic></n-card></n-gi>
             <n-gi span="2 m:1"><n-card size="small"><n-statistic label="最佳准确率" :value="bestStats.bestAcc"><template #suffix>%</template></n-statistic></n-card></n-gi>
@@ -260,21 +266,30 @@ function fmtSec(s) { return s >= 3600 ? `${(s / 3600).toFixed(1)}h` : `${Math.ro
 
         <!-- 打卡 -->
         <n-tab-pane name="checkin" tab="📅 打卡记录">
-          <n-card size="small">
-            <n-space align="center" style="margin-bottom: 14px">
-              <n-statistic label="连续打卡" :value="streak"><template #suffix>天</template></n-statistic>
-              <n-statistic label="累计打卡" :value="checkins.length" style="margin-left: 30px"><template #suffix>天</template></n-statistic>
+          <n-card size="small" style="margin-bottom: 14px">
+            <n-space align="center" :size="40">
+              <n-statistic label="🔥 连续打卡" :value="streak"><template #suffix>天</template></n-statistic>
+              <n-statistic label="📆 累计打卡" :value="checkins.length"><template #suffix>天</template></n-statistic>
             </n-space>
-            <div class="cal">
-              <div v-for="(week, wi) in calendar" :key="wi" class="cal-week">
-                <div v-for="d in week" :key="d.key" class="cal-day"
-                  :class="{ future: d.future }"
-                  :style="d.sec ? { background: settings.themeDef.primary, opacity: Math.min(1, 0.35 + d.sec / 3600) } : {}"
-                  :title="`${d.key}${d.sec ? ' · 练习 ' + fmtSec(d.sec) : ''}`"></div>
-              </div>
-            </div>
-            <p style="opacity:.55;font-size:12px">完成任意一次 ≥1 分钟的练习即自动打卡</p>
+            <p style="opacity:.55;font-size:12px;margin:10px 0 0">完成任意一次 ≥1 分钟的练习即自动打卡</p>
           </n-card>
+          <div class="month-grid">
+            <n-card v-for="m in monthCalendars" :key="m.label" size="small" class="month-card">
+              <div class="month-head">
+                <b>{{ m.label }}</b>
+                <n-tag size="tiny" round :type="m.lit ? 'success' : 'default'">{{ m.lit }}/{{ m.total }} 天</n-tag>
+              </div>
+              <div class="weekday-row"><span v-for="w in ['日','一','二','三','四','五','六']" :key="w">{{ w }}</span></div>
+              <div class="day-grid">
+                <template v-for="(c, i) in m.cells" :key="i">
+                  <div v-if="!c" class="day-cell empty"></div>
+                  <div v-else class="day-cell" :class="{ lit: c.sec > 0, future: c.future, today: c.today }"
+                    :style="c.sec ? { background: settings.themeDef.primary } : {}"
+                    :title="`${c.key}${c.sec ? ' · 练习 ' + fmtSec(c.sec) : ''}`">{{ c.d }}</div>
+                </template>
+              </div>
+            </n-card>
+          </div>
         </n-tab-pane>
 
         <!-- 个性化设置 -->
@@ -396,10 +411,17 @@ function fmtSec(s) { return s >= 3600 ? `${(s / 3600).toFixed(1)}h` : `${Math.ro
 .ct-item { display: flex; align-items: center; gap: 8px; }
 .ct-item :deep(.n-color-picker) { width: 110px; }
 .ct-label { white-space: nowrap; font-size: 13px; }
-.cal { display: flex; gap: 4px; overflow-x: auto; padding: 6px 0; }
-.cal-week { display: flex; flex-direction: column; gap: 4px; }
-.cal-day { width: 16px; height: 16px; border-radius: 4px; background: rgba(127,127,127,.15); }
-.cal-day.future { opacity: 0; }
+.month-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
+.month-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.weekday-row { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center;
+  font-size: 11px; opacity: .5; margin-bottom: 4px; }
+.day-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.day-cell { aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
+  border-radius: 6px; font-size: 12px; background: rgba(127,127,127,.1); }
+.day-cell.empty { background: transparent; }
+.day-cell.lit { color: #fff; font-weight: 700; }
+.day-cell.future { opacity: .25; background: transparent; }
+.day-cell.today { outline: 2px solid var(--kp-primary); }
 .theme-grid { display: flex; flex-wrap: wrap; gap: 10px; }
 .theme-chip { padding: 8px 14px; border-radius: 10px; cursor: pointer; font-size: 13px; font-weight: 600;
   border: 2px solid transparent; display: flex; align-items: center; gap: 6px; }

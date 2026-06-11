@@ -2,7 +2,11 @@
 import { supabase, dbAvailable } from './supabase'
 import { useUserStore } from '../stores/user'
 
-function today() { return new Date().toISOString().slice(0, 10) }
+// 本地时区日期（避免 UTC 偏移导致凌晨打卡记到前一天）
+export function localDay(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+const today = () => localDay()
 
 // 保存练习/游戏日志；返回新解锁成就列表
 export async function saveLog({ kind = 'practice', game = '', textId = null, result }) {
@@ -55,7 +59,7 @@ async function streakDays(uid) {
   const d = new Date()
   if (data[0].day !== today()) d.setDate(d.getDate() - 1) // 今天还没打卡则从昨天数
   for (const row of data) {
-    if (row.day === d.toISOString().slice(0, 10)) { n++; d.setDate(d.getDate() - 1) } else break
+    if (row.day === localDay(d)) { n++; d.setDate(d.getDate() - 1) } else break
   }
   return n
 }

@@ -22,7 +22,8 @@ const misses = ref(0)
 const startedAt = ref(0)
 
 let raf, spawnTimer, idSeq = 0
-const W = 900, H = 540
+const W = ref(900), H = ref(540)
+const arena = ref(null)
 const WORDS = ref(GAME_WORDS)
 const composing = ref(false)
 
@@ -30,7 +31,7 @@ function spawn() {
   const words = mode.value === 'letters' ? WORDS.value.letters : WORDS.value[mode.value]
   blocks.value.push({
     id: idSeq++, word: words[Math.floor(Math.random() * words.length)], typed: 0,
-    x: 30 + Math.random() * (W - 130), y: -28,
+    x: 30 + Math.random() * (W.value - 130), y: -28,
     speed: 0.3 + level.value * 0.1 + Math.random() * 0.15,
     hue: Math.floor(Math.random() * 360),
   })
@@ -38,6 +39,8 @@ function spawn() {
 
 async function start() {
   WORDS.value = await getGameWords()
+  W.value = Math.min(1200, Math.max(700, (document.querySelector('.shell')?.clientWidth || 940) - 8))
+  H.value = Math.min(620, Math.max(460, Math.round(window.innerHeight * 0.58)))
   state.value = 'playing'
   score.value = 0; combo.value = 0; maxCombo.value = 0; level.value = 1; lives.value = 5
   blocks.value = []; hits.value = 0; misses.value = 0
@@ -51,7 +54,7 @@ function loop() {
   raf = requestAnimationFrame(loop)
   for (const b of blocks.value) {
     b.y += b.speed
-    if (b.y > H - 36) {
+    if (b.y > H.value - 36) {
       blocks.value = blocks.value.filter(x => x.id !== b.id)
       lives.value--; combo.value = 0
       playFx('boom')
@@ -123,7 +126,7 @@ onBeforeUnmount(() => { cancelAnimationFrame(raf); clearInterval(spawnTimer) })
       <p>最高连击 ×{{ maxCombo }}</p>
     </template>
 
-    <div class="pool" :style="{ width: W + 'px', height: H + 'px' }">
+    <div ref="arena" class="pool" :style="{ width: '100%', maxWidth: W + 'px', height: H + 'px' }">
       <div v-for="b in blocks" :key="b.id" class="block"
         :style="{ left: b.x + 'px', top: b.y + 'px', background: `hsl(${b.hue} 70% 55%)` }">
         <span class="done">{{ b.word.slice(0, b.typed) }}</span><span>{{ b.word.slice(b.typed) }}</span>

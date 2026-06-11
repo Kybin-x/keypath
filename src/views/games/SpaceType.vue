@@ -21,9 +21,24 @@ const misses = ref(0)
 const startedAt = ref(0)
 
 let raf, spawnTimer, idSeq = 0
-const W = 900, H = 560
+const W = ref(900), H = ref(560)
+const arena = ref(null)
 const WORDS = ref(GAME_WORDS)
 const composing = ref(false)
+const effects = ref([])   // 射击特效 {id, type: laser|boom, ...}
+
+function addEffect(fx, ttl) {
+  const id = idSeq++
+  effects.value.push({ id, ...fx })
+  setTimeout(() => { effects.value = effects.value.filter(e => e.id !== id) }, ttl)
+}
+function shootFx(target) {
+  // 激光：从底部炮台射向目标
+  const x1 = W.value / 2, y1 = H.value - 56
+  const dx = target.x - x1, dy = (target.y + 16) - y1
+  addEffect({ type: 'laser', x1, y1, len: Math.hypot(dx, dy), angle: Math.atan2(dy, dx) * 180 / Math.PI }, 180)
+  addEffect({ type: 'boom', x: target.x, y: target.y }, 450)
+}
 
 function pool() {
   if (mode.value === 'letters') return WORDS.value.letters
@@ -35,7 +50,7 @@ function spawn() {
   const word = words[Math.floor(Math.random() * words.length)]
   enemies.value.push({
     id: idSeq++, word, typed: 0,
-    x: 40 + Math.random() * (W - 120),
+    x: 40 + Math.random() * (W.value - 120),
     y: -20,
     speed: 0.35 + level.value * 0.12 + Math.random() * 0.2,
   })
@@ -43,7 +58,11 @@ function spawn() {
 
 async function start() {
   WORDS.value = await getGameWords()
+  // 画布自适应容器宽度（开始时 arena 未渲染，量外层 shell）
+  W.value = Math.min(1200, Math.max(700, (document.querySelector('.shell')?.clientWidth || 940) - 8))
+  H.value = Math.min(640, Math.max(480, Math.round(window.innerHeight * 0.62)))
   state.value = 'playing'
+  effects.value = []
   score.value = 0; lives.value = 3; level.value = 1
   enemies.value = []; input.value = ''; hits.value = 0; misses.value = 0
   startedAt.value = Date.now()
@@ -59,7 +78,7 @@ function loop() {
   raf = requestAnimationFrame(loop)
   for (const e of enemies.value) {
     e.y += e.speed * (1 + level.value * 0.08)
-    if (e.y > H - 30) {
+    if (e.y > H.value - 30) {
       enemies.value = enemies.value.filter(x => x.id !== e.id)
       lives.value--
       playFx('boom')
@@ -85,6 +104,7 @@ function handleInput(e) {
   if (target) {
     target.typed = v.length
     if (v === target.word) {
+      shootFx(target)
       enemies.value = enemies.value.filter(x => x.id !== target.id)
       score.value += target.word.length * 10 + level.value * 5
       hits.value++
@@ -127,13 +147,18 @@ onBeforeUnmount(() => { cancelAnimationFrame(raf); clearInterval(spawnTimer) })
       </n-space>
     </template>
 
-    <div class="space" :style="{ width: W + 'px', height: H + 'px' }" @click="$el?.querySelector('#space-input')?.focus()">
+    <div ref="arena" class="space" :style="{ width: '100%', maxWidth: W + 'px', height: H + 'px' }" @click="$el?.querySelector('#space-input')?.focus()">
       <div v-for="e in enemies" :key="e.id" class="enemy" :style="{ left: e.x + 'px', top: e.y + 'px' }">
         <div class="ship">👾</div>
         <div class="word">
           <span class="done">{{ e.word.slice(0, e.typed) }}</span><span>{{ e.word.slice(e.typed) }}</span>
         </div>
       </div>
+      <template v-for="fx in effects" :key="fx.id">
+        <div v-if="fx.type === 'laser'" class="laser"
+          :style="{ left: fx.x1 + 'px', top: fx.y1 + 'px', width: fx.len + 'px', transform: `rotate(${fx.angle}deg)` }"></div>
+        <div v-else class="boom" :style="{ left: fx.x + 'px', top: fx.y + 'px' }">💥</div>
+      </template>
       <div class="cannon">🛸</div>
       <input id="space-input" class="game-input" autocomplete="off" @input="onInput"
         @compositionstart="onCompStart" @compositionend="onCompEnd"
@@ -151,6 +176,15 @@ onBeforeUnmount(() => { cancelAnimationFrame(raf); clearInterval(spawnTimer) })
   font-family: 'JetBrains Mono', monospace; }
 .word .done { color: #34d399; }
 .cannon { position: absolute; bottom: 32px; left: 50%; transform: translateX(-50%); font-size: 34px; }
+.laser { position: absolute; height: 3px; border-radius: 2px; transform-origin: left center; z-index: 2;
+  background: linear-gradient(90deg, #fff, #22d3ee 30%, #a855f7); box-shadow: 0 0 8px #22d3ee;
+  animation: laserfade .18s linear forwards; }
+@keyframes laserfade { to { opacity: 0; } }
+.boom { position: absolute; transform: translate(-50%, -50%); font-size: 30px; z-index: 2; pointer-events: none;
+  animation: boomup .45s ease-out forwards; }
+@keyframes boomup { 0% { transform: translate(-50%,-50%) scale(.4); opacity: 1; }
+  60% { transform: translate(-50%,-50%) scale(1.6); opacity: 1; }
+  100% { transform: translate(-50%,-50%) scale(2.1); opacity: 0; } }
 .game-input { position: absolute; bottom: 0; left: 0; width: 100%; border: none; padding: 8px 14px;
   font-size: 16px; background: rgba(255,255,255,.92); outline: none; font-family: 'JetBrains Mono', monospace; }
 </style>
