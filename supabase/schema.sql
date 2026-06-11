@@ -166,7 +166,7 @@ grant update (name, class_id, avatar, must_complete_profile) on users to anon, a
 
 -- 学生登录：学号 + 姓名 + 密码；教师/管理员登录：账号 + 密码（p_name 传空）
 create or replace function fn_login(p_account text, p_name text, p_password text)
-returns json language plpgsql security definer set search_path = public as $$
+returns json language plpgsql security definer set search_path = public, extensions as $$
 declare u users%rowtype; cname text;
 begin
   select * into u from users where student_no = p_account;
@@ -185,7 +185,7 @@ begin
 end $$;
 
 create or replace function fn_change_password(p_user_id uuid, p_old text, p_new text)
-returns json language plpgsql security definer set search_path = public as $$
+returns json language plpgsql security definer set search_path = public, extensions as $$
 declare u users%rowtype;
 begin
   select * into u from users where id = p_user_id;
@@ -199,7 +199,7 @@ end $$;
 
 -- 教师批量导入学生：[{student_no, name, class_name}]，默认密码 123
 create or replace function fn_import_students(p_actor uuid, p_rows jsonb)
-returns json language plpgsql security definer set search_path = public as $$
+returns json language plpgsql security definer set search_path = public, extensions as $$
 declare actor_role text; r jsonb; cid uuid; cnt int := 0;
 begin
   select role into actor_role from users where id = p_actor;
@@ -221,7 +221,7 @@ end $$;
 
 -- 超级管理员创建教师账号
 create or replace function fn_create_teacher(p_actor uuid, p_account text, p_name text, p_password text)
-returns json language plpgsql security definer set search_path = public as $$
+returns json language plpgsql security definer set search_path = public, extensions as $$
 declare actor_role text;
 begin
   select role into actor_role from users where id = p_actor;
@@ -233,7 +233,7 @@ end $$;
 
 -- 重置学生密码为 123（教师）
 create or replace function fn_reset_password(p_actor uuid, p_user_id uuid)
-returns json language plpgsql security definer set search_path = public as $$
+returns json language plpgsql security definer set search_path = public, extensions as $$
 declare actor_role text;
 begin
   select role into actor_role from users where id = p_actor;
