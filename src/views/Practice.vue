@@ -7,6 +7,7 @@ import {
 import { useUserStore } from '../stores/user'
 import { supabase, dbAvailable } from '../lib/supabase'
 import { KEY_DRILLS, LOCAL_TEXTS } from '../data/texts'
+import { getGameWords } from '../lib/gameWords'
 import { saveLog } from '../lib/records'
 import TypingEngine from '../components/TypingEngine.vue'
 import ResultCard from '../components/ResultCard.vue'
@@ -75,6 +76,25 @@ function startText(t) {
   phase.value = 'typing'
 }
 
+// ---- 单词练习（打完单词显示中文释义） ----
+const wordCount = ref(20)
+const wordPreview = ref([])
+async function loadWordPreview() {
+  const wb = await getGameWords()
+  wordPreview.value = wb.en.slice(0, 12)
+}
+onMounted(loadWordPreview)
+async function startWords() {
+  const wb = await getGameWords()
+  const list = [...wb.en].sort(() => Math.random() - 0.5).slice(0, wordCount.value === 0 ? wb.en.length : wordCount.value)
+  current.value = {
+    title: `单词练习（${list.length} 词）`, id: null,
+    content: list.join(' '), meanings: wb.enMap,
+    isWords: true,
+  }
+  phase.value = 'typing'
+}
+
 async function onFinish(r) {
   result.value = r
   phase.value = 'result'
@@ -87,6 +107,7 @@ async function onFinish(r) {
 
 function retry() {
   if (current.value.isDrill) current.value = { ...current.value, content: current.value.drill.gen() }
+  if (current.value.isWords) return startWords()
   result.value = null
   phase.value = 'typing'
 }
@@ -208,6 +229,27 @@ const DIFF = ['', '初级', '中级', '高级']
           </div>
         </n-tab-pane>
 
+        <n-tab-pane name="words" tab="🔤 单词练习">
+          <n-space vertical :size="14">
+            <n-space align="center">
+              <span style="font-weight:600">单词数量：</span>
+              <n-radio-group v-model:value="wordCount" size="small">
+                <n-radio-button :value="20">20 词</n-radio-button>
+                <n-radio-button :value="40">40 词</n-radio-button>
+                <n-radio-button :value="0">全部</n-radio-button>
+              </n-radio-group>
+              <n-button type="primary" @click="startWords">开始单词练习 🔤</n-button>
+            </n-space>
+            <p style="opacity:.65;font-size:13px;margin:0">
+              每打对一个单词，会立即浮现它的中文释义，边练打字边背单词。词库由老师在后台维护（支持 Excel 导入）。
+            </p>
+            <n-space :size="6">
+              <n-tag v-for="w in wordPreview" :key="w" round size="small">{{ w }}</n-tag>
+              <n-tag round size="small" type="info">…</n-tag>
+            </n-space>
+          </n-space>
+        </n-tab-pane>
+
         <n-tab-pane name="text" tab="📄 文稿练习">
           <n-space style="margin-bottom: 14px" align="center">
             <n-radio-group v-model:value="langFilter" size="small">
@@ -261,7 +303,8 @@ const DIFF = ['', '初级', '中级', '高级']
           <n-button size="small" @click="phase = 'pick'">退出</n-button>
         </n-space>
       </n-space>
-      <TypingEngine ref="engine" :text="current.content" :duration-sec="effectiveDuration" :loop="effectiveDuration > 0" @finish="onFinish" />
+      <TypingEngine ref="engine" :text="current.content" :duration-sec="effectiveDuration" :loop="effectiveDuration > 0"
+        :meanings="current.meanings || null" @finish="onFinish" />
     </template>
 
     <!-- 结果阶段 -->

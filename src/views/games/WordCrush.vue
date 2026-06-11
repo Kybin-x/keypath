@@ -4,6 +4,7 @@ import { ref, onBeforeUnmount } from 'vue'
 import { NButton, NRadioGroup, NRadioButton, NSpace, useMessage } from 'naive-ui'
 import { GAME_WORDS } from '../../data/texts'
 import { getGameWords } from '../../lib/gameWords'
+import { confetti } from '../../lib/confetti'
 import { playFx } from '../../lib/sound'
 import { saveLog } from '../../lib/records'
 import GameShell from './GameShell.vue'
@@ -26,6 +27,27 @@ const W = ref(900), H = ref(540)
 const arena = ref(null)
 const WORDS = ref(GAME_WORDS)
 const composing = ref(false)
+const effects = ref([])
+const comboFlash = ref(null)
+
+function addEffect(fx, ttl) {
+  const id = idSeq++
+  effects.value.push({ id, ...fx })
+  setTimeout(() => { effects.value = effects.value.filter(e => e.id !== id) }, ttl)
+}
+function crushFx(b, pts) {
+  // 方块爆裂：在视口对应位置撒小礼花
+  const pool = document.querySelector('.pool')
+  if (pool) {
+    const r = pool.getBoundingClientRect()
+    confetti({ count: 14, spread: 0.4, x: (r.left + b.x) / window.innerWidth, y: (r.top + b.y) / window.innerHeight })
+  }
+  addEffect({ type: 'float', x: b.x, y: b.y - 12, text: `+${pts}`, cls: 'score' }, 900)
+  const meaning = WORDS.value.enMap?.[b.word]
+  if (mode.value === 'en' && meaning) {
+    addEffect({ type: 'float', x: b.x, y: b.y + 20, text: `${b.word} · ${meaning}`, cls: 'meaning' }, 1500)
+  }
+}
 
 function spawn() {
   const words = mode.value === 'letters' ? WORDS.value.letters : WORDS.value[mode.value]
@@ -82,10 +104,15 @@ function handleInput(e) {
       combo.value++
       maxCombo.value = Math.max(maxCombo.value, combo.value)
       const bonus = combo.value >= 3 ? combo.value * 5 : 0
-      score.value += target.word.length * 10 + bonus
+      const pts = target.word.length * 10 + bonus
+      score.value += pts
       hits.value++
+      crushFx(target, pts)
       playFx('pop')
-      if (bonus) message.success(`🔥 连击 ×${combo.value}！+${bonus}`, { duration: 800 })
+      if (bonus) {
+        comboFlash.value = { n: combo.value, id: idSeq++ }
+        setTimeout(() => { if (comboFlash.value?.n === combo.value) comboFlash.value = null }, 900)
+      }
       e.target.value = ''
       blocks.value.forEach(b => b.typed = 0)
     }
@@ -131,6 +158,9 @@ onBeforeUnmount(() => { cancelAnimationFrame(raf); clearInterval(spawnTimer) })
         :style="{ left: b.x + 'px', top: b.y + 'px', background: `hsl(${b.hue} 70% 55%)` }">
         <span class="done">{{ b.word.slice(0, b.typed) }}</span><span>{{ b.word.slice(b.typed) }}</span>
       </div>
+      <div v-for="fx in effects" :key="fx.id" class="float-fx" :class="fx.cls"
+        :style="{ left: fx.x + 'px', top: fx.y + 'px' }">{{ fx.text }}</div>
+      <div v-if="comboFlash" :key="comboFlash.id" class="combo-flash">🔥 连击 ×{{ comboFlash.n }}</div>
       <input id="crush-input" class="game-input" autocomplete="off" @input="onInput"
         @compositionstart="onCompStart" @compositionend="onCompEnd" placeholder="在此输入…（中文模式可直接用拼音输入法）" />
     </div>
@@ -145,4 +175,18 @@ onBeforeUnmount(() => { cancelAnimationFrame(raf); clearInterval(spawnTimer) })
 .block .done { color: #fde047; }
 .game-input { position: absolute; bottom: 0; left: 0; width: 100%; border: none; padding: 8px 14px;
   font-size: 16px; background: rgba(255,255,255,.92); outline: none; font-family: 'JetBrains Mono', monospace; }
+.float-fx { position: absolute; transform: translateX(-50%); z-index: 3; pointer-events: none;
+  animation: floatup 1.4s ease-out forwards; white-space: nowrap; }
+.float-fx.score { color: #ea580c; font-weight: 900; font-size: 20px; text-shadow: 0 1px 4px rgba(255,255,255,.8); }
+.float-fx.meaning { background: rgba(255,255,255,.95); color: #4338ca; font-weight: 700; font-size: 15px;
+  padding: 3px 12px; border-radius: 14px; box-shadow: 0 2px 10px rgba(0,0,0,.2); }
+@keyframes floatup { 0% { opacity: 0; margin-top: 6px; } 15% { opacity: 1; margin-top: 0; }
+  80% { opacity: 1; } 100% { opacity: 0; margin-top: -34px; } }
+.combo-flash { position: absolute; left: 50%; top: 36%; transform: translate(-50%, -50%);
+  font-size: 44px; font-weight: 900; color: #f59e0b; -webkit-text-stroke: 2px #fff;
+  z-index: 4; pointer-events: none; animation: comboPop .9s ease-out forwards; }
+@keyframes comboPop { 0% { transform: translate(-50%,-50%) scale(.3); opacity: 0; }
+  30% { transform: translate(-50%,-50%) scale(1.25); opacity: 1; }
+  60% { transform: translate(-50%,-50%) scale(1); }
+  100% { transform: translate(-50%,-50%) scale(1.1); opacity: 0; } }
 </style>

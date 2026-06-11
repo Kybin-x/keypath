@@ -54,9 +54,16 @@ export const LOCAL_TEXTS = [
   { id: 'l6', title: '纯数字练习', lang: 'num', difficulty: 1, source: 'builtin', content: '157 9320 48 6210 735 8946 1029 3847 5610 2938 4756 1203 9485 7621 3059 8412 6793 0524 1867 4930' },
 ]
 
-// 游戏词库
+// 游戏/单词词库（内置英文单词均带中文释义）
+export const EN_MEANINGS = {
+  cat: '猫', dog: '狗', sun: '太阳', run: '跑', key: '钥匙', type: '打字', fast: '快的', jump: '跳',
+  code: '代码', star: '星星', moon: '月亮', fire: '火', wind: '风', rain: '雨', blue: '蓝色', gold: '金色',
+  ship: '船', rock: '岩石', tree: '树', bird: '鸟', speed: '速度', magic: '魔法', power: '力量',
+  happy: '快乐的', dream: '梦想', light: '光', cloud: '云', storm: '风暴', brave: '勇敢的', quick: '迅速的',
+}
+
 export const GAME_WORDS = {
-  en: ['cat', 'dog', 'sun', 'run', 'key', 'type', 'fast', 'jump', 'code', 'star', 'moon', 'fire', 'wind', 'rain', 'blue', 'gold', 'ship', 'rock', 'tree', 'bird', 'speed', 'magic', 'power', 'happy', 'dream', 'light', 'cloud', 'storm', 'brave', 'quick'],
+  en: Object.keys(EN_MEANINGS),
   zh: ['你好', '学习', '键盘', '打字', '速度', '准确', '练习', '游戏', '快乐', '努力', '坚持', '进步', '梦想', '成功', '朋友', '时间', '电脑', '学校', '老师', '同学'],
   letters: 'abcdefghijklmnopqrstuvwxyz'.split(''),
 }

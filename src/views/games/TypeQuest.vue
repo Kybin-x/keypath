@@ -2,6 +2,7 @@
 // 🐍 文字冒险：打字推进故事，速度影响分支结局
 import { ref, computed } from 'vue'
 import { NButton, NSpace, NCard, useMessage } from 'naive-ui'
+import { confetti } from '../../lib/confetti'
 import { playFx } from '../../lib/sound'
 import { saveLog } from '../../lib/records'
 import GameShell from './GameShell.vue'
@@ -60,6 +61,8 @@ function goto(key) {
   story.value.push(node.text)
   if (node.end) {
     score.value += node.bonus
+    if (node.bonus >= 300) confetti({ count: 90 })
+    else if (node.bonus >= 100) confetti({ count: 40 })
     finish()
   } else {
     engineKey.value++

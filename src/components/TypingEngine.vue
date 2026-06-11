@@ -11,6 +11,7 @@ const props = defineProps({
   loop: { type: Boolean, default: true },     // 短文循环
   showKeyboard: { type: Boolean, default: true },
   autoFocus: { type: Boolean, default: true },
+  meanings: { type: Object, default: null }, // {word: 中文释义}，打完单词后浮现
 })
 const emit = defineEmits(['finish', 'progress'])
 
@@ -78,6 +79,24 @@ function consume(chars) {
   emit('progress', stats())
 }
 
+// 释义浮现：到达单词边界且整词打对时显示中文
+const flash = ref(null)
+let flashTimer = null, flashSeq = 0
+function checkWordMeaning(boundaryPos) {
+  if (!props.meanings) return
+  const t = fullTarget.value
+  let s = boundaryPos - 1
+  while (s >= 0 && !/[\s\n]/.test(t[s])) s--
+  const word = t.slice(s + 1, boundaryPos)
+  const meaning = props.meanings[word] || props.meanings[word?.toLowerCase()]
+  if (!word || !meaning) return
+  // 仅整词全部打对时显示
+  for (let i = s + 1; i < boundaryPos; i++) if (typedStates.value[i] !== 'ok') return
+  flash.value = { word, meaning, id: flashSeq++ }
+  clearTimeout(flashTimer)
+  flashTimer = setTimeout(() => { flash.value = null }, 2000)
+}
+
 function noteApplyChars(chars) {
   noteActivity()
   for (const ch of chars) {
@@ -94,9 +113,11 @@ function noteApplyChars(chars) {
     }
     playKey(settings.sound, ok)
     pos.value++
+    if (ok && /[\s\n]/.test(ch)) checkWordMeaning(pos.value - 1)
   }
   // 循环：到达末尾
   if (pos.value >= fullTarget.value.length) {
+    checkWordMeaning(pos.value)
     if (props.loop && props.durationSec > 0) {
       loops.value++
       fullTarget.value += '\n' + baseText.value
@@ -209,6 +230,11 @@ function fmtTime(s) { const m = Math.floor(s / 60); return `${m}:${String(Math.f
       <div v-if="!focused && !finished" class="focus-hint">点击此处开始打字</div>
       <div v-if="composing && compBuffer" class="ime-buffer">{{ compBuffer }}</div>
     </div>
+    <Transition name="meaning">
+      <div v-if="flash" :key="flash.id" class="meaning-flash">
+        <span class="mf-word">{{ flash.word }}</span><span class="mf-sep">·</span><span class="mf-meaning">{{ flash.meaning }}</span>
+      </div>
+    </Transition>
 
     <KeyboardView v-if="showKeyboard" :active-key="nextKey" :error-keys="errorKeys" />
   </div>
@@ -241,4 +267,15 @@ function fmtTime(s) { const m = Math.floor(s / 60); return `${m}:${String(Math.f
   font-size: 16px; font-weight: 600; pointer-events: none; }
 .ime-buffer { position: absolute; bottom: -34px; left: 12px; padding: 2px 10px; border-radius: 6px;
   background: var(--kp-primary, #4F46E5); color: #fff; font-size: 14px; }
+.meaning-flash { position: sticky; bottom: 8px; margin: 10px auto 0; width: fit-content;
+  padding: 6px 18px; border-radius: 20px; font-size: 18px;
+  background: linear-gradient(90deg, var(--kp-primary, #4F46E5), var(--kp-secondary, #7C3AED));
+  color: #fff; box-shadow: 0 6px 18px rgba(79,70,229,.35); }
+.mf-word { font-weight: 800; font-family: 'JetBrains Mono', monospace; }
+.mf-sep { margin: 0 8px; opacity: .6; }
+.mf-meaning { font-weight: 600; }
+.meaning-enter-active { animation: mfpop .3s; }
+.meaning-leave-active { transition: opacity .4s; }
+.meaning-leave-to { opacity: 0; }
+@keyframes mfpop { 0% { transform: translateY(12px) scale(.7); opacity: 0; } 100% { transform: none; opacity: 1; } }
 </style>

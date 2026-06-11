@@ -5,6 +5,7 @@ import { NButton, NSpace, NInput, NCard, NTag, useMessage, NRadioGroup, NRadioBu
 import { supabase } from '../../lib/supabase'
 import { useUserStore } from '../../stores/user'
 import { LOCAL_TEXTS } from '../../data/texts'
+import { confetti } from '../../lib/confetti'
 import { playFx } from '../../lib/sound'
 import { saveLog } from '../../lib/records'
 import GameShell from './GameShell.vue'
@@ -147,6 +148,7 @@ async function onFinish(s) {
   clearInterval(botTimer)
   state.value = 'over'
   playFx(rank === 1 ? 'win' : 'lose')
+  if (rank === 1) confetti({ count: 90 })
   const { unlocked } = await saveLog({ kind: 'game', game: 'race', result: { score: score.value, cpm: s.cpm, accuracy: s.accuracy, durationSec: s.durationSec, activeSec: s.activeSec } })
   unlocked.forEach(a => message.info(`${a.icon} 解锁成就：${a.title}`))
 }
@@ -210,7 +212,9 @@ function restart() {
         <div v-for="p in ranking" :key="p.key" class="track">
           <span class="pname" :class="{ me: p.key === myKey }">{{ p.name }}</span>
           <div class="lane">
-            <div class="runner" :style="{ left: `calc(${(p.progress * 100).toFixed(1)}% - 14px)` }">{{ p.done ? '🏆' : '🏃' }}</div>
+            <div class="runner" :style="{ left: `calc(${(p.progress * 100).toFixed(1)}% - 14px)` }">
+              <span v-if="!p.done && p.cpm > 80" class="dust">💨</span>{{ p.done ? '🏆' : '🏃' }}
+            </div>
           </div>
           <span class="pcpm">{{ Math.round(p.cpm) }} CPM</span>
         </div>
@@ -231,6 +235,9 @@ function restart() {
 .pname.me { color: var(--kp-primary); }
 .lane { flex: 1; position: relative; height: 30px; background: rgba(127,127,127,.12);
   border-radius: 15px; border-right: 4px solid #10b981; }
-.runner { position: absolute; top: 1px; font-size: 22px; transition: left .15s linear; }
+.runner { position: absolute; top: 1px; font-size: 22px; transition: left .15s linear; white-space: nowrap; }
+.dust { display: inline-block; animation: dustPuff .5s infinite; font-size: 16px; }
+@keyframes dustPuff { 0% { opacity: .9; transform: translateX(0) scale(1); }
+  100% { opacity: .2; transform: translateX(-8px) scale(1.4); } }
 .pcpm { width: 76px; font-size: 12px; opacity: .7; font-variant-numeric: tabular-nums; }
 </style>

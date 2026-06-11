@@ -105,8 +105,14 @@ function handleInput(e) {
     target.typed = v.length
     if (v === target.word) {
       shootFx(target)
+      const pts = target.word.length * 10 + level.value * 5
+      addEffect({ type: 'float', x: target.x, y: target.y - 14, text: `+${pts}`, cls: 'score' }, 900)
+      const meaning = WORDS.value.enMap?.[target.word]
+      if (mode.value === 'en' && meaning) {
+        addEffect({ type: 'float', x: target.x, y: target.y + 22, text: `${target.word} · ${meaning}`, cls: 'meaning' }, 1500)
+      }
       enemies.value = enemies.value.filter(x => x.id !== target.id)
-      score.value += target.word.length * 10 + level.value * 5
+      score.value += pts
       hits.value++
       playFx('pop')
       e.target.value = ''; input.value = ''
@@ -157,7 +163,8 @@ onBeforeUnmount(() => { cancelAnimationFrame(raf); clearInterval(spawnTimer) })
       <template v-for="fx in effects" :key="fx.id">
         <div v-if="fx.type === 'laser'" class="laser"
           :style="{ left: fx.x1 + 'px', top: fx.y1 + 'px', width: fx.len + 'px', transform: `rotate(${fx.angle}deg)` }"></div>
-        <div v-else class="boom" :style="{ left: fx.x + 'px', top: fx.y + 'px' }">💥</div>
+        <div v-else-if="fx.type === 'boom'" class="boom" :style="{ left: fx.x + 'px', top: fx.y + 'px' }">💥</div>
+        <div v-else class="float-fx" :class="fx.cls" :style="{ left: fx.x + 'px', top: fx.y + 'px' }">{{ fx.text }}</div>
       </template>
       <div class="cannon">🛸</div>
       <input id="space-input" class="game-input" autocomplete="off" @input="onInput"
@@ -185,6 +192,13 @@ onBeforeUnmount(() => { cancelAnimationFrame(raf); clearInterval(spawnTimer) })
 @keyframes boomup { 0% { transform: translate(-50%,-50%) scale(.4); opacity: 1; }
   60% { transform: translate(-50%,-50%) scale(1.6); opacity: 1; }
   100% { transform: translate(-50%,-50%) scale(2.1); opacity: 0; } }
+.float-fx { position: absolute; transform: translateX(-50%); z-index: 3; pointer-events: none;
+  animation: floatup 1.4s ease-out forwards; white-space: nowrap; }
+.float-fx.score { color: #fde047; font-weight: 900; font-size: 20px; text-shadow: 0 0 8px rgba(0,0,0,.6); }
+.float-fx.meaning { background: rgba(255,255,255,.95); color: #4338ca; font-weight: 700; font-size: 15px;
+  padding: 3px 12px; border-radius: 14px; box-shadow: 0 2px 10px rgba(0,0,0,.35); }
+@keyframes floatup { 0% { opacity: 0; margin-top: 6px; } 15% { opacity: 1; margin-top: 0; }
+  80% { opacity: 1; } 100% { opacity: 0; margin-top: -34px; } }
 .game-input { position: absolute; bottom: 0; left: 0; width: 100%; border: none; padding: 8px 14px;
   font-size: 16px; background: rgba(255,255,255,.92); outline: none; font-family: 'JetBrains Mono', monospace; }
 </style>

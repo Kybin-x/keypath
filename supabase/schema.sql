@@ -129,6 +129,16 @@ create table if not exists checkins (
   primary key (user_id, day)
 );
 
+-- ---------- 单词词库表（英文单词 + 中文释义，练习与游戏共用） ----------
+create table if not exists words (
+  id uuid primary key default gen_random_uuid(),
+  word text not null,
+  meaning text not null default '',
+  owner_id uuid references users(id) on delete cascade,
+  is_global boolean default true,    -- false=仅所属教师的班级可见
+  created_at timestamptz default now()
+);
+
 -- ---------- 应用配置表（游戏词库等全局配置） ----------
 create table if not exists app_config (
   key text primary key,
@@ -159,10 +169,11 @@ alter table user_achievements enable row level security;
 alter table checkins enable row level security;
 alter table user_settings enable row level security;
 alter table app_config enable row level security;
+alter table words enable row level security;
 
 do $$ declare t text;
 begin
-  foreach t in array array['classes','users','texts','tasks','task_students','task_records','practice_logs','achievements','user_achievements','checkins','user_settings','app_config'] loop
+  foreach t in array array['classes','users','texts','tasks','task_students','task_records','practice_logs','achievements','user_achievements','checkins','user_settings','app_config','words'] loop
     execute format('drop policy if exists allow_all on %I', t);
     execute format('create policy allow_all on %I for all to anon, authenticated using (true) with check (true)', t);
   end loop;

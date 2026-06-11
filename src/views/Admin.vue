@@ -8,8 +8,9 @@ import {
 } from 'naive-ui'
 import { supabase } from '../lib/supabase'
 import { useUserStore } from '../stores/user'
-import { GAME_WORDS } from '../data/texts'
+import { GAME_WORDS, EN_MEANINGS } from '../data/texts'
 import { clearGameWordsCache } from '../lib/gameWords'
+import { parseXlsxRows } from '../lib/zip'
 import { localDay } from '../lib/records'
 
 const message = useMessage()
@@ -177,26 +178,69 @@ async function removeTeacher(t) {
   loadAll()
 }
 
-// ---- 游戏词库配置 ----
+// ---- 词库配置：中文词语（app_config）+ 英文单词带释义（words 表） ----
 const gameWordsZh = ref('')
-const gameWordsEn = ref('')
+const wordPairs = ref('')   // 每行：单词,中文释义
 async function loadGameWordsConfig() {
   const { data } = await supabase.from('app_config').select('value').eq('key', 'game_words').maybeSingle()
   gameWordsZh.value = (data?.value?.zh?.length ? data.value.zh : GAME_WORDS.zh).join('\n')
-  gameWordsEn.value = (data?.value?.en?.length ? data.value.en : GAME_WORDS.en).join('\n')
+  try {
+    const { data: rows } = await supabase.from('words').select('word, meaning').eq('owner_id', user.user.id).order('created_at')
+    if (rows?.length) wordPairs.value = rows.map(r => `${r.word},${r.meaning}`).join('\n')
+    else if (user.isSuper) wordPairs.value = Object.entries(EN_MEANINGS).map(([w, m]) => `${w},${m}`).join('\n')
+  } catch { /* words 表未创建 */ }
 }
-async function saveGameWords() {
+async function saveZhWords() {
   const zh = gameWordsZh.value.split('\n').map(w => w.trim()).filter(Boolean)
-  const en = gameWordsEn.value.split('\n').map(w => w.trim()).filter(Boolean)
-  if (!zh.length || !en.length) return message.warning('中英文词库都不能为空')
-  const { error } = await supabase.from('app_config').upsert({ key: 'game_words', value: { zh, en }, updated_at: new Date().toISOString() })
-  if (error) return message.error('保存失败：' + error.message + '（若提示表不存在，请在 Supabase 运行最新 schema.sql 中的 app_config 部分）')
+  if (!zh.length) return message.warning('中文词库不能为空')
+  const { error } = await supabase.from('app_config').upsert({ key: 'game_words', value: { zh }, updated_at: new Date().toISOString() })
+  if (error) return message.error('保存失败：' + error.message)
   clearGameWordsCache()
-  message.success(`游戏词库已更新：中文 ${zh.length} 个 / 英文 ${en.length} 个`)
+  message.success(`中文词库已更新：${zh.length} 个词语`)
 }
-async function resetGameWords() {
+function parseWordPairs() {
+  return wordPairs.value.split('\n').map(l => l.trim()).filter(Boolean).map(l => {
+    const [word, ...rest] = l.split(/[,，\t]/).map(x => x.trim())
+    return { word, meaning: rest.join(' ') || '' }
+  }).filter(p => p.word && /^[a-zA-Z' -]+$/.test(p.word))
+}
+async function saveWordPairs() {
+  const pairs = parseWordPairs()
+  if (!pairs.length) return message.warning('没有有效的单词行，格式：单词,中文释义')
+  const noMeaning = pairs.filter(p => !p.meaning).length
+  await supabase.from('words').delete().eq('owner_id', user.user.id)
+  const { error } = await supabase.from('words').insert(pairs.map(p => ({ ...p, owner_id: user.user.id, is_global: user.isSuper })))
+  if (error) return message.error('保存失败：' + error.message + '（若提示表不存在，请在 Supabase 运行最新 schema.sql）')
+  clearGameWordsCache()
+  message.success(`单词词库已保存：${pairs.length} 个单词${noMeaning ? `（${noMeaning} 个缺少释义）` : ''}${user.isSuper ? '，全站可用' : '，对你的班级生效'}`)
+}
+function downloadWordTemplate() {
+  const csv = '﻿单词,中文释义\ncat,猫\ndog,狗\nspeed,速度\n'
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
+  a.download = '单词词库导入模板.csv'
+  a.click()
+}
+async function importWordsFile({ file }) {
+  try {
+    const f = file.file
+    let lines = []
+    if (f.name.endsWith('.xlsx')) {
+      const rows = await parseXlsxRows(f)
+      lines = rows.map(r => `${r[0]},${r[1] || ''}`)
+    } else {
+      let text = await f.text()
+      lines = text.replace(/^﻿/, '').split('\n')
+    }
+    lines = lines.map(l => l.trim()).filter(l => l && !/单词|word/i.test(l.split(/[,，\t]/)[0]))
+    wordPairs.value = lines.join('\n')
+    message.info(`已读取 ${lines.length} 行，请核对后点击保存`)
+  } catch (e) { message.error('文件解析失败：' + e.message) }
+  return false
+}
+function resetWordPairs() {
+  wordPairs.value = Object.entries(EN_MEANINGS).map(([w, m]) => `${w},${m}`).join('\n')
   gameWordsZh.value = GAME_WORDS.zh.join('\n')
-  gameWordsEn.value = GAME_WORDS.en.join('\n')
 }
 async function deleteText(t) {
   await supabase.from('texts').delete().eq('id', t.id)
@@ -465,25 +509,35 @@ const STATUS_TAG = { draft: ['草稿', 'default'], open: ['进行中', 'success'
           </n-modal>
         </n-tab-pane>
 
-        <!-- 游戏词库 -->
-        <n-tab-pane name="gamewords" tab="🎮 游戏词库">
-          <p style="opacity:.65;font-size:13px;margin-top:0">配置太空射击 / 文字消消乐 / 打地鼠等游戏使用的词语，每行一个。保存后立即对全体学生生效。</p>
+        <!-- 词库管理 -->
+        <n-tab-pane name="gamewords" tab="📚 词库管理">
+          <p style="opacity:.65;font-size:13px;margin-top:0">
+            单词词库供「单词练习」和所有游戏的英文模式使用，打对单词会显示中文释义。
+            {{ user.isSuper ? '你保存的单词全站可用。' : '你保存的单词仅对你的班级生效（与全站词库合并）。' }}
+          </p>
           <n-grid :cols="2" :x-gap="14" item-responsive responsive="screen">
             <n-gi span="2 m:1">
-              <n-card size="small" title="中文词语">
-                <n-input v-model:value="gameWordsZh" type="textarea" :rows="12" placeholder="每行一个词语" />
+              <n-card size="small" title="英文单词 + 中文释义">
+                <n-space style="margin-bottom: 10px" :size="8">
+                  <n-button size="small" @click="downloadWordTemplate">📥 下载 Excel 模板</n-button>
+                  <n-upload :show-file-list="false" accept=".xlsx,.csv,.txt" :custom-request="importWordsFile">
+                    <n-button size="small">📂 从 Excel / CSV 导入</n-button>
+                  </n-upload>
+                </n-space>
+                <n-input v-model:value="wordPairs" type="textarea" :rows="12" placeholder="每行一个：单词,中文释义&#10;cat,猫&#10;speed,速度" />
+                <n-button type="primary" style="margin-top: 10px" @click="saveWordPairs">保存单词词库</n-button>
               </n-card>
             </n-gi>
             <n-gi span="2 m:1">
-              <n-card size="small" title="英文单词">
-                <n-input v-model:value="gameWordsEn" type="textarea" :rows="12" placeholder="one word per line" />
+              <n-card size="small" title="中文词语（游戏中文模式）">
+                <n-input v-model:value="gameWordsZh" type="textarea" :rows="12" placeholder="每行一个词语" />
+                <n-space style="margin-top: 10px">
+                  <n-button type="primary" @click="saveZhWords">保存中文词库</n-button>
+                  <n-button @click="resetWordPairs">恢复默认</n-button>
+                </n-space>
               </n-card>
             </n-gi>
           </n-grid>
-          <n-space style="margin-top: 12px">
-            <n-button type="primary" @click="saveGameWords">保存词库</n-button>
-            <n-button @click="resetGameWords">恢复默认词库</n-button>
-          </n-space>
         </n-tab-pane>
 
         <!-- 成就配置 -->

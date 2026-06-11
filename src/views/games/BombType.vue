@@ -3,6 +3,7 @@
 import { ref, onBeforeUnmount, computed } from 'vue'
 import { NButton, NSpace, useMessage } from 'naive-ui'
 import { GAME_WORDS } from '../../data/texts'
+import { confetti } from '../../lib/confetti'
 import { playFx } from '../../lib/sound'
 import { saveLog } from '../../lib/records'
 import GameShell from './GameShell.vue'
@@ -17,6 +18,7 @@ const pos = ref(0)
 const hits = ref(0)
 const misses = ref(0)
 const startedAt = ref(0)
+const exploded = ref(false)
 
 let timer
 const fuseSpeed = computed(() => 0.35 + level.value * 0.1)
@@ -30,6 +32,7 @@ function genCode() {
 
 function start() {
   state.value = 'playing'
+  exploded.value = false
   score.value = 0; level.value = 1; fuse.value = 100
   hits.value = 0; misses.value = 0
   startedAt.value = Date.now()
@@ -55,6 +58,11 @@ function onKeydown(e) {
       level.value++
       fuse.value = Math.min(100, fuse.value + 35)
       playFx('win')
+      const bomb = document.querySelector('.bomb')
+      if (bomb) {
+        const r = bomb.getBoundingClientRect()
+        confetti({ count: 36, spread: 0.7, x: (r.left + r.width / 2) / window.innerWidth, y: (r.top + r.height / 2) / window.innerHeight })
+      }
       message.success(`💣 第 ${level.value - 1} 关拆除成功！`, { duration: 900 })
       genCode()
     }
@@ -67,6 +75,9 @@ function onKeydown(e) {
 
 async function explode() {
   clearInterval(timer)
+  exploded.value = true
+  playFx('boom')
+  await new Promise(r => setTimeout(r, 700))  // 先看爆炸动画再结算
   state.value = 'over'
   playFx('lose')
   const dur = (Date.now() - startedAt.value) / 1000
@@ -88,7 +99,7 @@ onBeforeUnmount(() => clearInterval(timer))
     <template #over><p>坚持到了第 {{ level }} 关 💥</p></template>
 
     <div class="bomb-area" tabindex="0" @keydown="onKeydown" id="bomb-input">
-      <div class="bomb" :class="{ danger: fuse < 30 }">💣</div>
+      <div class="bomb" :class="{ danger: fuse < 30 && !exploded, exploded }">{{ exploded ? '💥' : '💣' }}</div>
       <div class="fuse-bar">
         <div class="fuse-fill" :style="{ width: fuse + '%' }" :class="{ danger: fuse < 30 }"></div>
         <span class="spark" :style="{ left: `calc(${fuse}% - 10px)` }">✨</span>
@@ -108,6 +119,10 @@ onBeforeUnmount(() => clearInterval(timer))
 .bomb { font-size: 72px; }
 .bomb.danger { animation: shake2 .2s infinite; }
 @keyframes shake2 { 25% { transform: rotate(-4deg); } 75% { transform: rotate(4deg); } }
+.bomb.exploded { animation: explodeAnim .7s ease-out forwards; }
+@keyframes explodeAnim { 0% { transform: scale(.6); opacity: 1; }
+  50% { transform: scale(2.4); opacity: 1; }
+  100% { transform: scale(3.2); opacity: .2; } }
 .fuse-bar { position: relative; height: 14px; background: rgba(255,255,255,.15); border-radius: 7px; margin: 18px 30px; }
 .fuse-fill { height: 100%; background: linear-gradient(90deg,#f59e0b,#fbbf24); border-radius: 7px; transition: width .05s linear; }
 .fuse-fill.danger { background: linear-gradient(90deg,#dc2626,#f87171); }

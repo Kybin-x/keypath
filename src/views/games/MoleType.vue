@@ -4,6 +4,7 @@ import { ref, onBeforeUnmount } from 'vue'
 import { NButton, NRadioGroup, NRadioButton, NSpace, useMessage } from 'naive-ui'
 import { GAME_WORDS } from '../../data/texts'
 import { getGameWords } from '../../lib/gameWords'
+import { confetti } from '../../lib/confetti'
 import { playFx } from '../../lib/sound'
 import { saveLog } from '../../lib/records'
 import GameShell from './GameShell.vue'
@@ -33,7 +34,7 @@ async function start() {
   WORDS.value = await getGameWords()
   state.value = 'playing'
   score.value = 0; timeLeft.value = 60; hits.value = 0; misses.value = 0
-  holes.value.forEach(h => { h.mole = null; h.bonk = false })
+  holes.value.forEach(h => { h.mole = null; h.bonk = false; h.float = null })
   popTimer = setInterval(() => {
     popMole()
     for (const h of holes.value) if (h.mole && Date.now() > h.mole.ttl) h.mole = null
@@ -60,11 +61,15 @@ function handleInput(e) {
   if (target) {
     target.mole.typed = v.length
     if (v === target.mole.word) {
-      score.value += target.mole.word.length * 10
+      const pts = target.mole.word.length * 10
+      score.value += pts
       hits.value++
       target.bonk = true
+      const meaning = mode.value === 'en' ? WORDS.value.enMap?.[target.mole.word] : ''
+      target.float = { text: `+${pts}`, meaning: meaning ? `${target.mole.word} · ${meaning}` : '' }
       playFx('pop')
       setTimeout(() => { target.mole = null; target.bonk = false }, 250)
+      setTimeout(() => { target.float = null }, 1300)
       e.target.value = ''
       withMole.forEach(h => h.mole && (h.mole.typed = 0))
     }
@@ -79,6 +84,7 @@ async function gameOver() {
   clearInterval(popTimer); clearInterval(clockTimer)
   state.value = 'over'
   playFx('win')
+  confetti({ count: 70 })
   const acc = hits.value + misses.value ? Math.round(hits.value / (hits.value + misses.value) * 1000) / 10 : 100
   const { unlocked } = await saveLog({ kind: 'game', game: 'mole', result: { score: score.value, accuracy: acc, durationSec: 60, activeSec: 60 } })
   unlocked.forEach(a => message.info(`${a.icon} 解锁成就：${a.title}`))
@@ -108,6 +114,10 @@ onBeforeUnmount(() => { clearInterval(popTimer); clearInterval(clockTimer) })
             <div class="word"><span class="done">{{ h.mole.word.slice(0, h.mole.typed) }}</span>{{ h.mole.word.slice(h.mole.typed) }}</div>
             {{ h.bonk ? '💫' : '🐹' }}
           </div>
+          <div v-if="h.float" class="hole-float">
+            <div class="hf-score">{{ h.float.text }}</div>
+            <div v-if="h.float.meaning" class="hf-meaning">{{ h.float.meaning }}</div>
+          </div>
           <div class="dirt"></div>
         </div>
       </div>
@@ -129,6 +139,13 @@ onBeforeUnmount(() => { clearInterval(popTimer); clearInterval(clockTimer) })
 .word { font-size: 15px; font-weight: 800; background: #fff; border-radius: 8px; padding: 1px 8px;
   margin-bottom: 4px; font-family: 'JetBrains Mono', monospace; box-shadow: 0 2px 6px rgba(0,0,0,.15); }
 .word .done { color: #10b981; }
+.hole-float { position: absolute; top: 0; left: 50%; transform: translateX(-50%); text-align: center;
+  z-index: 3; pointer-events: none; animation: holeFloat 1.3s ease-out forwards; }
+.hf-score { color: #ea580c; font-weight: 900; font-size: 20px; text-shadow: 0 1px 3px #fff; }
+.hf-meaning { background: rgba(255,255,255,.95); color: #4338ca; font-weight: 700; font-size: 13px;
+  padding: 2px 10px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.2); white-space: nowrap; }
+@keyframes holeFloat { 0% { opacity: 0; margin-top: 10px; } 15% { opacity: 1; margin-top: 0; }
+  80% { opacity: 1; } 100% { opacity: 0; margin-top: -26px; } }
 .game-input { width: 100%; border: none; padding: 9px 14px; font-size: 16px; margin-top: 20px;
   border-radius: 10px 10px 0 0; outline: none; font-family: 'JetBrains Mono', monospace; }
 </style>
