@@ -3,6 +3,7 @@
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { NButton, NRadioGroup, NRadioButton, NSpace, useMessage } from 'naive-ui'
 import { GAME_WORDS } from '../../data/texts'
+import { getGameWords } from '../../lib/gameWords'
 import { playFx } from '../../lib/sound'
 import { saveLog } from '../../lib/records'
 import GameShell from './GameShell.vue'
@@ -20,11 +21,13 @@ const misses = ref(0)
 const startedAt = ref(0)
 
 let raf, spawnTimer, idSeq = 0
-const W = 700, H = 460
+const W = 900, H = 560
+const WORDS = ref(GAME_WORDS)
+const composing = ref(false)
 
 function pool() {
-  if (mode.value === 'letters') return GAME_WORDS.letters
-  return GAME_WORDS[mode.value]
+  if (mode.value === 'letters') return WORDS.value.letters
+  return WORDS.value[mode.value]
 }
 
 function spawn() {
@@ -38,7 +41,8 @@ function spawn() {
   })
 }
 
-function start() {
+async function start() {
+  WORDS.value = await getGameWords()
   state.value = 'playing'
   score.value = 0; lives.value = 3; level.value = 1
   enemies.value = []; input.value = ''; hits.value = 0; misses.value = 0
@@ -64,7 +68,14 @@ function loop() {
   }
 }
 
+// 中文输入法：拼音组词阶段不处理，上屏后才匹配
+function onCompStart() { composing.value = true }
+function onCompEnd(e) { composing.value = false; handleInput(e) }
 function onInput(e) {
+  if (composing.value) return
+  handleInput(e)
+}
+function handleInput(e) {
   const v = e.target.value
   input.value = v
   if (!v) return
@@ -125,7 +136,8 @@ onBeforeUnmount(() => { cancelAnimationFrame(raf); clearInterval(spawnTimer) })
       </div>
       <div class="cannon">🛸</div>
       <input id="space-input" class="game-input" autocomplete="off" @input="onInput"
-        placeholder="在此输入…" />
+        @compositionstart="onCompStart" @compositionend="onCompEnd"
+        placeholder="在此输入…（中文模式可直接用拼音输入法）" />
     </div>
   </GameShell>
 </template>

@@ -124,6 +124,13 @@ create table if not exists checkins (
   primary key (user_id, day)
 );
 
+-- ---------- 应用配置表（游戏词库等全局配置） ----------
+create table if not exists app_config (
+  key text primary key,
+  value jsonb not null default '{}',
+  updated_at timestamptz default now()
+);
+
 -- ---------- 个人设置表 ----------
 create table if not exists user_settings (
   user_id uuid primary key references users(id) on delete cascade,
@@ -146,10 +153,11 @@ alter table achievements enable row level security;
 alter table user_achievements enable row level security;
 alter table checkins enable row level security;
 alter table user_settings enable row level security;
+alter table app_config enable row level security;
 
 do $$ declare t text;
 begin
-  foreach t in array array['classes','users','texts','tasks','task_students','task_records','practice_logs','achievements','user_achievements','checkins','user_settings'] loop
+  foreach t in array array['classes','users','texts','tasks','task_students','task_records','practice_logs','achievements','user_achievements','checkins','user_settings','app_config'] loop
     execute format('drop policy if exists allow_all on %I', t);
     execute format('create policy allow_all on %I for all to anon, authenticated using (true) with check (true)', t);
   end loop;

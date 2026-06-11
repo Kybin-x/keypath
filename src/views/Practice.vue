@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import {
-  NCard, NTabs, NTabPane, NButton, NTag, NSelect, NInput, NModal, NSpace, NUpload,
+  NCard, NTabs, NTabPane, NButton, NTag, NSelect, NInput, NInputNumber, NModal, NSpace, NUpload,
   NRadioGroup, NRadioButton, useMessage, NEmpty,
 } from 'naive-ui'
 import { useUserStore } from '../stores/user'
@@ -29,8 +29,10 @@ const engine = ref(null)
 const DURATIONS = [
   { label: '1 分钟', value: 60 }, { label: '3 分钟', value: 180 },
   { label: '5 分钟', value: 300 }, { label: '10 分钟', value: 600 },
-  { label: '不限时', value: 0 },
+  { label: '不限时', value: 0 }, { label: '自定义', value: -1 },
 ]
+const customMin = ref(2)
+const effectiveDuration = computed(() => duration.value === -1 ? Math.max(1, customMin.value || 1) * 60 : duration.value)
 
 onMounted(loadTexts)
 async function loadTexts() {
@@ -176,6 +178,9 @@ const DIFF = ['', '初级', '中级', '高级']
           <n-radio-group v-model:value="duration">
             <n-radio-button v-for="d in DURATIONS" :key="d.value" :value="d.value">{{ d.label }}</n-radio-button>
           </n-radio-group>
+          <n-input-number v-if="duration === -1" v-model:value="customMin" :min="1" :max="120" style="width: 130px">
+            <template #suffix>分钟</template>
+          </n-input-number>
           <span style="opacity:.55;font-size:13px">短文稿会在计时内自动循环</span>
         </n-space>
       </n-card>
@@ -235,11 +240,11 @@ const DIFF = ['', '初级', '中级', '高级']
       <n-space justify="space-between" align="center" style="margin-bottom: 12px">
         <h2 style="margin:0">{{ current.title }}</h2>
         <n-space>
-          <n-button size="small" @click="engine?.finish()" v-if="duration === 0">提前结束</n-button>
+          <n-button size="small" @click="engine?.finish()" v-if="effectiveDuration === 0">提前结束</n-button>
           <n-button size="small" @click="phase = 'pick'">退出</n-button>
         </n-space>
       </n-space>
-      <TypingEngine ref="engine" :text="current.content" :duration-sec="duration" :loop="duration > 0" @finish="onFinish" />
+      <TypingEngine ref="engine" :text="current.content" :duration-sec="effectiveDuration" :loop="effectiveDuration > 0" @finish="onFinish" />
     </template>
 
     <!-- 结果阶段 -->

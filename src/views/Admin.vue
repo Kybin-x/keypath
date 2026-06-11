@@ -4,10 +4,12 @@ import { ref, computed, onMounted } from 'vue'
 import {
   NCard, NTabs, NTabPane, NButton, NSpace, NInput, NSelect, NDatePicker, NInputNumber, NSwitch,
   NRadioGroup, NRadioButton, NTag, NEmpty, NSpin, NModal, NTransfer, NStatistic, NGrid, NGi,
-  NTable, useMessage, NCheckbox, NCheckboxGroup, NPopconfirm,
+  NTable, useMessage, NCheckbox, NCheckboxGroup, NPopconfirm, NUpload,
 } from 'naive-ui'
 import { supabase } from '../lib/supabase'
 import { useUserStore } from '../stores/user'
+import { GAME_WORDS } from '../data/texts'
+import { clearGameWordsCache } from '../lib/gameWords'
 
 const message = useMessage()
 const user = useUserStore()
@@ -42,7 +44,7 @@ async function loadAll() {
     achievements.value = a.data || []; logs.value = l.data || []
   } finally { loading.value = false }
 }
-onMounted(loadAll)
+onMounted(() => { loadAll(); loadGameWordsConfig() })
 
 const classMap = computed(() => Object.fromEntries(classes.value.map(c => [c.id, c.name])))
 const stuMap = computed(() => Object.fromEntries(students.value.map(s => [s.id, s])))
@@ -79,6 +81,24 @@ async function doImport() {
     loadAll()
   } catch (e) { message.error('导入失败：' + e.message) } finally { importing.value = false }
 }
+// 导入模板下载 / 文件导入
+function downloadTemplate() {
+  const csv = '﻿学号,姓名,班级\n20240101,张三,电商2401\n20240102,李四,电商2401\n20240201,王五,电商2402\n'
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
+  a.download = '学生导入模板.csv'
+  a.click()
+}
+async function importFromFile({ file }) {
+  let text = await file.file.text()
+  text = text.replace(/^﻿/, '')
+  // 跳过表头行
+  const lines = text.split('\n').filter(l => l.trim() && !/学号/.test(l))
+  importText.value = lines.join('\n')
+  message.info(`已读取 ${lines.length} 行，请核对后点击导入`)
+  return false
+}
+
 async function resetPwd(s) {
   const { data, error } = await supabase.rpc('fn_reset_password', { p_actor: user.user.id, p_user_id: s.id })
   if (error || !data.ok) message.error('重置失败')
@@ -93,16 +113,53 @@ const stuClassFilter = ref(null)
 const filteredStudents = computed(() => stuClassFilter.value
   ? students.value.filter(s => s.class_id === stuClassFilter.value) : students.value)
 
-// ---- 文稿管理 ----
+// ---- 文稿管理（新增 / 编辑） ----
 const showText = ref(false)
-const textForm = ref({ title: '', content: '', lang: 'zh', difficulty: 1 })
+const textForm = ref({ id: null, title: '', content: '', lang: 'zh', difficulty: 1 })
+function newText() {
+  textForm.value = { id: null, title: '', content: '', lang: 'zh', difficulty: 1 }
+  showText.value = true
+}
+function editText(t) {
+  textForm.value = { id: t.id, title: t.title, content: t.content, lang: t.lang, difficulty: t.difficulty }
+  showText.value = true
+}
 async function saveText() {
-  if (!textForm.value.title || !textForm.value.content) return message.warning('请填写标题和内容')
-  await supabase.from('texts').insert({ ...textForm.value, source: 'builtin', owner_id: user.user.id })
-  message.success('文稿已添加')
+  const f = textForm.value
+  if (!f.title || !f.content) return message.warning('请填写标题和内容')
+  if (f.id) {
+    const { error } = await supabase.from('texts').update({ title: f.title, content: f.content, lang: f.lang, difficulty: f.difficulty }).eq('id', f.id)
+    if (error) return message.error(error.message)
+    message.success('文稿已更新')
+  } else {
+    const { error } = await supabase.from('texts').insert({ title: f.title, content: f.content, lang: f.lang, difficulty: f.difficulty, source: 'builtin', owner_id: user.user.id })
+    if (error) return message.error(error.message)
+    message.success('文稿已添加')
+  }
   showText.value = false
-  textForm.value = { title: '', content: '', lang: 'zh', difficulty: 1 }
   loadAll()
+}
+
+// ---- 游戏词库配置 ----
+const gameWordsZh = ref('')
+const gameWordsEn = ref('')
+async function loadGameWordsConfig() {
+  const { data } = await supabase.from('app_config').select('value').eq('key', 'game_words').maybeSingle()
+  gameWordsZh.value = (data?.value?.zh?.length ? data.value.zh : GAME_WORDS.zh).join('\n')
+  gameWordsEn.value = (data?.value?.en?.length ? data.value.en : GAME_WORDS.en).join('\n')
+}
+async function saveGameWords() {
+  const zh = gameWordsZh.value.split('\n').map(w => w.trim()).filter(Boolean)
+  const en = gameWordsEn.value.split('\n').map(w => w.trim()).filter(Boolean)
+  if (!zh.length || !en.length) return message.warning('中英文词库都不能为空')
+  const { error } = await supabase.from('app_config').upsert({ key: 'game_words', value: { zh, en }, updated_at: new Date().toISOString() })
+  if (error) return message.error('保存失败：' + error.message + '（若提示表不存在，请在 Supabase 运行最新 schema.sql 中的 app_config 部分）')
+  clearGameWordsCache()
+  message.success(`游戏词库已更新：中文 ${zh.length} 个 / 英文 ${en.length} 个`)
+}
+async function resetGameWords() {
+  gameWordsZh.value = GAME_WORDS.zh.join('\n')
+  gameWordsEn.value = GAME_WORDS.en.join('\n')
 }
 async function deleteText(t) {
   await supabase.from('texts').delete().eq('id', t.id)
@@ -223,6 +280,12 @@ const STATUS_TAG = { draft: ['草稿', 'default'], open: ['进行中', 'success'
         <n-tab-pane name="students" tab="👥 学生管理">
           <n-card size="small" title="批量导入学生" style="margin-bottom: 14px">
             <p style="opacity:.65;font-size:13px;margin-top:0">每行一名学生：<code>学号,姓名,班级</code>（支持逗号/Tab 分隔，班级不存在会自动创建；默认密码 123）</p>
+            <n-space style="margin-bottom: 10px">
+              <n-button size="small" @click="downloadTemplate">📥 下载导入模板</n-button>
+              <n-upload :show-file-list="false" accept=".csv,.txt" :custom-request="importFromFile">
+                <n-button size="small">📂 从 CSV / TXT 文件导入</n-button>
+              </n-upload>
+            </n-space>
             <n-input v-model:value="importText" type="textarea" :rows="5" placeholder="20240101,张三,电商2401&#10;20240102,李四,电商2401" />
             <n-button type="primary" style="margin-top: 10px" :loading="importing" @click="doImport">导入</n-button>
           </n-card>
@@ -248,7 +311,7 @@ const STATUS_TAG = { draft: ['草稿', 'default'], open: ['进行中', 'success'
 
         <!-- 文稿管理 -->
         <n-tab-pane name="texts" tab="📄 文稿管理">
-          <n-button type="primary" @click="showText = true" style="margin-bottom: 12px">＋ 添加文稿</n-button>
+          <n-button type="primary" @click="newText" style="margin-bottom: 12px">＋ 添加文稿</n-button>
           <n-table size="small" :single-line="false">
             <thead><tr><th>标题</th><th>语言</th><th>难度</th><th>来源</th><th>字数</th><th>操作</th></tr></thead>
             <tbody>
@@ -258,7 +321,12 @@ const STATUS_TAG = { draft: ['草稿', 'default'], open: ['进行中', 'success'
                 <td>{{ ['', '初级', '中级', '高级'][t.difficulty] }}</td>
                 <td>{{ t.source === 'builtin' ? '内置' : '学生' }}</td>
                 <td>{{ t.content.length }}</td>
-                <td><n-popconfirm @positive-click="deleteText(t)"><template #trigger><n-button size="tiny" type="error" quaternary>删除</n-button></template>确定删除？</n-popconfirm></td>
+                <td>
+                  <n-space size="small">
+                    <n-button size="tiny" @click="editText(t)">编辑</n-button>
+                    <n-popconfirm @positive-click="deleteText(t)"><template #trigger><n-button size="tiny" type="error" quaternary>删除</n-button></template>确定删除？</n-popconfirm>
+                  </n-space>
+                </td>
               </tr>
             </tbody>
           </n-table>
@@ -355,6 +423,27 @@ const STATUS_TAG = { draft: ['草稿', 'default'], open: ['进行中', 'success'
           </n-modal>
         </n-tab-pane>
 
+        <!-- 游戏词库 -->
+        <n-tab-pane name="gamewords" tab="🎮 游戏词库">
+          <p style="opacity:.65;font-size:13px;margin-top:0">配置太空射击 / 文字消消乐 / 打地鼠等游戏使用的词语，每行一个。保存后立即对全体学生生效。</p>
+          <n-grid :cols="2" :x-gap="14" item-responsive responsive="screen">
+            <n-gi span="2 m:1">
+              <n-card size="small" title="中文词语">
+                <n-input v-model:value="gameWordsZh" type="textarea" :rows="12" placeholder="每行一个词语" />
+              </n-card>
+            </n-gi>
+            <n-gi span="2 m:1">
+              <n-card size="small" title="英文单词">
+                <n-input v-model:value="gameWordsEn" type="textarea" :rows="12" placeholder="one word per line" />
+              </n-card>
+            </n-gi>
+          </n-grid>
+          <n-space style="margin-top: 12px">
+            <n-button type="primary" @click="saveGameWords">保存词库</n-button>
+            <n-button @click="resetGameWords">恢复默认词库</n-button>
+          </n-space>
+        </n-tab-pane>
+
         <!-- 成就配置 -->
         <n-tab-pane name="ach" tab="🏅 成就配置">
           <p style="opacity:.65;font-size:13px">可自定义成就名称、说明、图标与阈值（如 CPM 门槛、连续打卡天数）</p>
@@ -387,7 +476,7 @@ const STATUS_TAG = { draft: ['草稿', 'default'], open: ['进行中', 'success'
     </n-spin>
 
     <!-- 添加文稿弹窗 -->
-    <n-modal v-model:show="showText" preset="card" title="添加内置文稿" style="max-width: 560px">
+    <n-modal v-model:show="showText" preset="card" :title="textForm.id ? '编辑文稿' : '添加内置文稿'" style="max-width: 560px">
       <n-space vertical>
         <n-input v-model:value="textForm.title" placeholder="文稿标题" />
         <n-space>

@@ -242,14 +242,18 @@ function fmtSec(s) { return s >= 3600 ? `${(s / 3600).toFixed(1)}h` : `${Math.ro
         <!-- 成就 -->
         <n-tab-pane name="ach" tab="🏅 成就徽章">
           <div v-for="(list, cat) in achByCat" :key="cat" style="margin-bottom: 16px">
-            <h3>{{ cat }}</h3>
-            <n-space>
+            <h3 style="margin: 8px 0">{{ cat }}</h3>
+            <div class="ach-grid">
               <n-card v-for="a in list" :key="a.id" size="small" class="ach-card" :class="{ locked: !a.owned }">
-                <div class="ach-icon">{{ a.owned ? a.icon : '🔒' }}</div>
-                <div class="ach-title">{{ a.title }}</div>
-                <div class="ach-desc">{{ a.description }}</div>
+                <div class="ach-row">
+                  <div class="ach-icon">{{ a.owned ? a.icon : '🔒' }}</div>
+                  <div>
+                    <div class="ach-title">{{ a.title }}</div>
+                    <div class="ach-desc">{{ a.description }}</div>
+                  </div>
+                </div>
               </n-card>
-            </n-space>
+            </div>
           </div>
           <p v-if="hiddenLocked" style="opacity:.5;font-size:13px">还有 {{ hiddenLocked }} 个隐藏成就等你发现…</p>
         </n-tab-pane>
@@ -296,12 +300,12 @@ function fmtSec(s) { return s >= 3600 ? `${(s / 3600).toFixed(1)}h` : `${Math.ro
             </div>
             <div style="margin-top: 14px">
               <b>自定义主题：</b>
-              <n-space align="center" style="margin-top: 8px">
-                <span>主色</span><n-color-picker v-model:value="custom.primary" :show-alpha="false" style="width: 90px" />
-                <span>辅色</span><n-color-picker v-model:value="custom.secondary" :show-alpha="false" style="width: 90px" />
-                <span>背景</span><n-color-picker v-model:value="custom.bg" :show-alpha="false" style="width: 90px" />
+              <div class="custom-theme">
+                <div class="ct-item"><span class="ct-label">主色</span><n-color-picker v-model:value="custom.primary" :show-alpha="false" /></div>
+                <div class="ct-item"><span class="ct-label">辅色</span><n-color-picker v-model:value="custom.secondary" :show-alpha="false" /></div>
+                <div class="ct-item"><span class="ct-label">背景</span><n-color-picker v-model:value="custom.bg" :show-alpha="false" /></div>
                 <n-button size="small" type="primary" @click="applyCustomTheme">应用</n-button>
-              </n-space>
+              </div>
             </div>
           </n-card>
 
@@ -382,11 +386,16 @@ function fmtSec(s) { return s >= 3600 ? `${(s / 3600).toFixed(1)}h` : `${Math.ro
 .rec-row { display: flex; gap: 18px; padding: 8px 4px; border-bottom: 1px solid rgba(127,127,127,.1); font-size: 14px; }
 .rec-title { font-weight: 600; flex: 1; }
 .rec-date { opacity: .5; font-size: 12px; }
-.ach-card { width: 150px; text-align: center; }
+.ach-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
 .ach-card.locked { opacity: .45; filter: grayscale(1); }
-.ach-icon { font-size: 32px; }
-.ach-title { font-weight: 700; margin: 4px 0 2px; }
-.ach-desc { font-size: 11px; opacity: .6; }
+.ach-row { display: flex; align-items: center; gap: 12px; }
+.ach-icon { font-size: 30px; }
+.ach-title { font-weight: 700; }
+.ach-desc { font-size: 12px; opacity: .6; margin-top: 2px; }
+.custom-theme { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 10px; }
+.ct-item { display: flex; align-items: center; gap: 8px; }
+.ct-item :deep(.n-color-picker) { width: 110px; }
+.ct-label { white-space: nowrap; font-size: 13px; }
 .cal { display: flex; gap: 4px; overflow-x: auto; padding: 6px 0; }
 .cal-week { display: flex; flex-direction: column; gap: 4px; }
 .cal-day { width: 16px; height: 16px; border-radius: 4px; background: rgba(127,127,127,.15); }

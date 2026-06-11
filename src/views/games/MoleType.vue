@@ -3,6 +3,7 @@
 import { ref, onBeforeUnmount } from 'vue'
 import { NButton, NRadioGroup, NRadioButton, NSpace, useMessage } from 'naive-ui'
 import { GAME_WORDS } from '../../data/texts'
+import { getGameWords } from '../../lib/gameWords'
 import { playFx } from '../../lib/sound'
 import { saveLog } from '../../lib/records'
 import GameShell from './GameShell.vue'
@@ -17,16 +18,19 @@ const hits = ref(0)
 const misses = ref(0)
 
 let popTimer, clockTimer
+const WORDS = ref(GAME_WORDS)
+const composing = ref(false)
 
 function popMole() {
   const empty = holes.value.filter(h => !h.mole)
   if (!empty.length) return
   const h = empty[Math.floor(Math.random() * empty.length)]
-  const words = mode.value === 'letters' ? GAME_WORDS.letters : GAME_WORDS[mode.value]
+  const words = mode.value === 'letters' ? WORDS.value.letters : WORDS.value[mode.value]
   h.mole = { word: words[Math.floor(Math.random() * words.length)], typed: 0, ttl: Date.now() + (mode.value === 'letters' ? 2600 : 4200) }
 }
 
-function start() {
+async function start() {
+  WORDS.value = await getGameWords()
   state.value = 'playing'
   score.value = 0; timeLeft.value = 60; hits.value = 0; misses.value = 0
   holes.value.forEach(h => { h.mole = null; h.bonk = false })
@@ -41,7 +45,14 @@ function start() {
   setTimeout(() => document.getElementById('mole-input')?.focus(), 50)
 }
 
+// 中文输入法：拼音组词阶段不处理，上屏后才匹配
+function onCompStart() { composing.value = true }
+function onCompEnd(e) { composing.value = false; handleInput(e) }
 function onInput(e) {
+  if (composing.value) return
+  handleInput(e)
+}
+function handleInput(e) {
   const v = e.target.value
   if (!v) return
   const withMole = holes.value.filter(h => h.mole)
@@ -100,16 +111,17 @@ onBeforeUnmount(() => { clearInterval(popTimer); clearInterval(clockTimer) })
           <div class="dirt"></div>
         </div>
       </div>
-      <input id="mole-input" class="game-input" autocomplete="off" @input="onInput" placeholder="在此输入…" />
+      <input id="mole-input" class="game-input" autocomplete="off" @input="onInput"
+        @compositionstart="onCompStart" @compositionend="onCompEnd" placeholder="在此输入…（中文模式可直接用拼音输入法）" />
     </div>
   </GameShell>
 </template>
 
 <style scoped>
-.field { max-width: 640px; margin: 0 auto; background: linear-gradient(180deg,#bbf7d0,#86efac);
-  border-radius: 12px; padding: 26px 26px 0; }
-.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
-.hole { position: relative; height: 120px; display: flex; align-items: flex-end; justify-content: center; }
+.field { max-width: 860px; margin: 0 auto; background: linear-gradient(180deg,#bbf7d0,#86efac);
+  border-radius: 12px; padding: 30px 30px 0; }
+.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; }
+.hole { position: relative; height: 150px; display: flex; align-items: flex-end; justify-content: center; }
 .dirt { width: 90%; height: 26px; background: #92400e; border-radius: 50%; }
 .mole { position: absolute; bottom: 14px; font-size: 40px; text-align: center; animation: pop .2s; }
 .mole.bonk { transform: scale(1.2); }

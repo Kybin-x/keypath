@@ -1,4 +1,8 @@
 // 键盘音效（WebAudio 合成，无需音频文件）
+let muted = localStorage.getItem('kp_muted') === '1'
+export function setMuted(v) { muted = v; localStorage.setItem('kp_muted', v ? '1' : '0') }
+export function getMuted() { return muted }
+
 let ctx
 function ac() { if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)(); return ctx }
 
@@ -33,7 +37,7 @@ export const SOUND_SCHEMES = [
 
 export function playKey(scheme, correct = true) {
   try {
-    if (scheme === 'mute') return
+    if (scheme === 'mute' || muted) return
     if (!correct) { blip({ freq: 160, dur: 0.12, type: 'sawtooth', gain: 0.1, slide: -80 }); return }
     switch (scheme) {
       case 'mech': noise(0.025, 0.09); blip({ freq: 2200, dur: 0.02, type: 'square', gain: 0.03 }); break
@@ -46,6 +50,7 @@ export function playKey(scheme, correct = true) {
 
 export function playFx(name) {
   try {
+    if (muted) return
     switch (name) {
       case 'win': [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => blip({ freq: f, dur: 0.15, type: 'triangle', gain: 0.1 }), i * 120)); break
       case 'lose': [400, 320, 240].forEach((f, i) => setTimeout(() => blip({ freq: f, dur: 0.2, type: 'sawtooth', gain: 0.08 }), i * 150)); break

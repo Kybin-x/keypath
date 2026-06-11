@@ -1,7 +1,9 @@
 <script setup>
-// 游戏通用外壳：标题栏、分数、开始/结束遮罩
+// 游戏通用外壳：标题栏、分数、静音、开始/结束遮罩
+import { ref } from 'vue'
 import { NCard, NButton, NSpace } from 'naive-ui'
 import { useRouter } from 'vue-router'
+import { getMuted, setMuted } from '../../lib/sound'
 
 defineProps({
   title: String,
@@ -11,6 +13,11 @@ defineProps({
 })
 defineEmits(['restart'])
 const router = useRouter()
+const muted = ref(getMuted())
+function toggleMute() {
+  muted.value = !muted.value
+  setMuted(muted.value)
+}
 </script>
 
 <template>
@@ -20,6 +27,7 @@ const router = useRouter()
       <n-space align="center">
         <span v-if="extra" class="extra">{{ extra }}</span>
         <span class="score">得分 {{ score }}</span>
+        <n-button size="small" circle :title="muted ? '开启音效' : '静音'" @click="toggleMute">{{ muted ? '🔇' : '🔊' }}</n-button>
         <n-button size="small" @click="router.push('/games')">退出</n-button>
       </n-space>
     </n-space>

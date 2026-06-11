@@ -43,6 +43,20 @@ const bgStyle = computed(() => {
   const s = { background: settings.background }
   return s
 })
+// 磨砂玻璃：保证图片/深色背景下导航文字可读
+const glassStyle = computed(() => ({
+  background: settings.isDark ? 'rgba(17, 17, 24, 0.72)' : 'rgba(255, 255, 255, 0.78)',
+  backdropFilter: 'blur(14px)',
+  WebkitBackdropFilter: 'blur(14px)',
+}))
+// 内容区在图片背景下加一层更轻的衬底，保证正文可读且背景仍可见
+const contentGlass = computed(() => settings.bgMode === 'image' && settings.bgImage
+  ? {
+      background: settings.isDark ? 'rgba(10, 10, 16, 0.5)' : 'rgba(255, 255, 255, 0.55)',
+      backdropFilter: 'blur(6px)',
+      WebkitBackdropFilter: 'blur(6px)',
+    }
+  : {})
 const blurStyle = computed(() => settings.bgMode === 'image' && settings.bgBlur > 0
   ? { backdropFilter: `blur(${settings.bgBlur}px)` } : {})
 
@@ -62,7 +76,7 @@ watch(() => user.user?.id, id => { if (id) settings.loadRemote(id) }, { immediat
         <div class="app-bg" :style="bgStyle">
           <div class="app-blur" :style="blurStyle">
             <n-layout style="height: 100vh; background: transparent">
-              <n-layout-header class="header" bordered>
+              <n-layout-header class="header" bordered :style="glassStyle">
                 <div class="logo" @click="router.push('/')">
                   <span class="logo-icon">⌨️</span>
                   <span class="logo-text">键途 <small>KeyPath</small></span>
@@ -84,11 +98,12 @@ watch(() => user.user?.id, id => { if (id) settings.loadRemote(id) }, { immediat
               <n-layout has-sider style="height: calc(100vh - 56px); background: transparent">
                 <n-layout-sider bordered collapse-mode="width" :collapsed-width="56" :width="190"
                   :collapsed="collapsed" show-trigger @collapse="collapsed = true" @expand="collapsed = false"
-                  :native-scrollbar="false" style="background: transparent">
+                  :native-scrollbar="false" :style="glassStyle">
                   <n-menu :value="route.path" :options="menuOptions" :collapsed="collapsed"
                     :collapsed-width="56" @update:value="k => router.push(k)" />
                 </n-layout-sider>
-                <n-layout-content :native-scrollbar="false" content-style="padding: 20px; min-height: 100%" style="background: transparent">
+                <n-layout-content :native-scrollbar="false"
+                  :content-style="{ padding: '20px', minHeight: '100%', ...contentGlass }" style="background: transparent">
                   <router-view />
                 </n-layout-content>
               </n-layout>

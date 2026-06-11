@@ -1,6 +1,6 @@
 <script setup>
 // 核心打字引擎：计时、对比、CPM/WPM/准确率统计、短文循环、键位错误记录
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useSettingsStore } from '../stores/settings'
 import { playKey } from '../lib/sound'
 import KeyboardView from './KeyboardView.vue'
@@ -110,7 +110,7 @@ function onKeydown(e) {
   if (finished.value) return
   if (e.key === 'Backspace' && !composing.value) {
     e.preventDefault()
-    if (pos.value > 0) {
+    if (pos.value > windowStart.value) {
       pos.value--
       const st = typedStates.value[pos.value]
       if (st === 'ok') correctTotal.value--
@@ -168,17 +168,21 @@ function finish() {
 
 defineExpose({ reset, focus, finish, stats })
 
-// ------- 渲染窗口：只显示当前位置附近若干字符 -------
-const WINDOW = 220
+// ------- 渲染窗口：按"循环轮次"整段展示（自动换行，从左到右），光标随行滚动 -------
+const textBox = ref(null)
+const windowStart = computed(() => loops.value * (baseText.value.length + 1))
 const view = computed(() => {
   const t = fullTarget.value
-  const start = Math.max(0, pos.value - 60)
-  const slice = t.slice(start, start + WINDOW)
+  const slice = t.slice(windowStart.value, windowStart.value + baseText.value.length)
   return Array.from(slice).map((ch, i) => {
-    const idx = start + i
-    return { ch: ch === '\n' ? '⏎' : ch, idx, state: idx === pos.value ? 'cur' : typedStates.value[idx], nl: ch === '\n' }
+    const idx = windowStart.value + i
+    return { ch: ch === '\n' ? '⏎\n' : ch, idx, state: idx === pos.value ? 'cur' : typedStates.value[idx], nl: ch === '\n' }
   })
 })
+watch(pos, () => nextTick(() => {
+  const cur = textBox.value?.querySelector('.ch.cur')
+  cur?.scrollIntoView({ block: 'nearest' })
+}))
 const remainSec = computed(() => props.durationSec > 0 ? Math.max(0, props.durationSec - elapsed.value) : null)
 const live = computed(() => stats())
 const nextKey = computed(() => fullTarget.value[pos.value] || '')
@@ -197,7 +201,7 @@ function fmtTime(s) { const m = Math.floor(s / 60); return `${m}:${String(Math.f
       <div class="stat" v-if="loops"><span class="label">循环</span><span class="val">×{{ loops + 1 }}</span></div>
     </div>
 
-    <div class="textarea-wrap" :style="{ fontSize: settings.fontPx + 'px', fontFamily: settings.fontFamily, lineHeight: settings.lineHeight }">
+    <div ref="textBox" class="textarea-wrap" :style="{ fontSize: settings.fontPx + 'px', fontFamily: settings.fontFamily, lineHeight: settings.lineHeight }">
       <span v-for="c in view" :key="c.idx" class="ch" :class="[c.state, { nl: c.nl }]">{{ c.ch }}</span>
       <input ref="inputEl" class="ghost-input" autocomplete="off" autocapitalize="off" spellcheck="false"
         @keydown="onKeydown" @input="onInput" @compositionstart="onCompStart" @compositionend="onCompEnd"
@@ -220,7 +224,8 @@ function fmtTime(s) { const m = Math.floor(s / 60); return `${m}:${String(Math.f
 .stat .val.time { color: var(--kp-primary, #4F46E5); }
 .stat .val.err { color: #ef4444; }
 .textarea-wrap { position: relative; padding: 24px 28px; border-radius: 12px; min-height: 130px;
-  background: rgba(255,255,255,.75); border: 2px solid rgba(127,127,127,.15); cursor: text;
+  max-height: 320px; overflow-y: auto; scroll-padding: 60px;
+  background: rgba(255,255,255,.78); border: 2px solid rgba(127,127,127,.15); cursor: text;
   word-break: break-all; white-space: pre-wrap; }
 .dark .textarea-wrap { background: rgba(0,0,0,.35); }
 .ch { opacity: .55; border-radius: 3px; transition: background .08s; }
