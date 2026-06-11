@@ -1,0 +1,403 @@
+<script setup>
+// 教学管理：班级总览 / 学生管理 / 文稿管理 / 任务管理 / 出勤 / 成就配置 / 教师账号(超管)
+import { ref, computed, onMounted } from 'vue'
+import {
+  NCard, NTabs, NTabPane, NButton, NSpace, NInput, NSelect, NDatePicker, NInputNumber, NSwitch,
+  NRadioGroup, NRadioButton, NTag, NEmpty, NSpin, NModal, NTransfer, NStatistic, NGrid, NGi,
+  NTable, useMessage, NCheckbox, NCheckboxGroup, NPopconfirm,
+} from 'naive-ui'
+import { supabase } from '../lib/supabase'
+import { useUserStore } from '../stores/user'
+
+const message = useMessage()
+const user = useUserStore()
+
+const loading = ref(true)
+const classes = ref([])
+const students = ref([])
+const texts = ref([])
+const tasks = ref([])
+const records = ref([])
+const checkinsToday = ref([])
+const achievements = ref([])
+const logs = ref([])
+
+async function loadAll() {
+  loading.value = true
+  try {
+    const today = new Date().toISOString().slice(0, 10)
+    const [c, s, t, k, r, ci, a, l] = await Promise.all([
+      supabase.from('classes').select('*').order('name'),
+      supabase.from('users').select('id, student_no, name, class_id, role').eq('role', 'student').order('student_no'),
+      supabase.from('texts').select('*').order('created_at'),
+      supabase.from('tasks').select('*').order('created_at', { ascending: false }),
+      supabase.from('task_records').select('*'),
+      supabase.from('checkins').select('user_id, practice_sec').eq('day', today),
+      supabase.from('achievements').select('*').order('sort'),
+      supabase.from('practice_logs').select('user_id, kind, cpm, accuracy, created_at').eq('kind', 'practice').limit(5000),
+    ])
+    classes.value = c.data || []; students.value = s.data || []
+    texts.value = t.data || []; tasks.value = k.data || []
+    records.value = r.data || []; checkinsToday.value = ci.data || []
+    achievements.value = a.data || []; logs.value = l.data || []
+  } finally { loading.value = false }
+}
+onMounted(loadAll)
+
+const classMap = computed(() => Object.fromEntries(classes.value.map(c => [c.id, c.name])))
+const stuMap = computed(() => Object.fromEntries(students.value.map(s => [s.id, s])))
+
+// ---- 班级总览 ----
+const classStats = computed(() => classes.value.map(c => {
+  const ids = new Set(students.value.filter(s => s.class_id === c.id).map(s => s.id))
+  const recs = [...records.value.filter(r => ids.has(r.student_id)), ...logs.value.filter(l => ids.has(l.user_id))]
+  const avg = (arr, f) => arr.length ? Math.round(arr.reduce((a, b) => a + Number(f(b)), 0) / arr.length) : 0
+  return {
+    ...c, count: ids.size,
+    avgCpm: avg(recs, r => r.cpm),
+    avgAcc: recs.length ? (recs.reduce((a, b) => a + Number(b.accuracy), 0) / recs.length).toFixed(1) : '—',
+    checkedToday: checkinsToday.value.filter(x => ids.has(x.user_id)).length,
+  }
+}))
+
+// ---- 学生导入 ----
+const importText = ref('')
+const importing = ref(false)
+async function doImport() {
+  const rows = importText.value.split('\n').map(l => l.trim()).filter(Boolean).map(l => {
+    const parts = l.split(/[,，\t]/).map(x => x.trim())
+    return { student_no: parts[0], name: parts[1], class_name: parts[2] }
+  }).filter(r => r.student_no && r.name && r.class_name)
+  if (!rows.length) return message.warning('没有有效数据。格式：学号,姓名,班级（每行一个）')
+  importing.value = true
+  try {
+    const { data, error } = await supabase.rpc('fn_import_students', { p_actor: user.user.id, p_rows: rows })
+    if (error) throw error
+    if (!data.ok) throw new Error(data.msg)
+    message.success(`成功导入 ${data.count} 名学生（默认密码 123）`)
+    importText.value = ''
+    loadAll()
+  } catch (e) { message.error('导入失败：' + e.message) } finally { importing.value = false }
+}
+async function resetPwd(s) {
+  const { data, error } = await supabase.rpc('fn_reset_password', { p_actor: user.user.id, p_user_id: s.id })
+  if (error || !data.ok) message.error('重置失败')
+  else message.success(`${s.name} 的密码已重置为 123`)
+}
+async function removeStudent(s) {
+  await supabase.from('users').delete().eq('id', s.id)
+  message.success('已删除')
+  loadAll()
+}
+const stuClassFilter = ref(null)
+const filteredStudents = computed(() => stuClassFilter.value
+  ? students.value.filter(s => s.class_id === stuClassFilter.value) : students.value)
+
+// ---- 文稿管理 ----
+const showText = ref(false)
+const textForm = ref({ title: '', content: '', lang: 'zh', difficulty: 1 })
+async function saveText() {
+  if (!textForm.value.title || !textForm.value.content) return message.warning('请填写标题和内容')
+  await supabase.from('texts').insert({ ...textForm.value, source: 'builtin', owner_id: user.user.id })
+  message.success('文稿已添加')
+  showText.value = false
+  textForm.value = { title: '', content: '', lang: 'zh', difficulty: 1 }
+  loadAll()
+}
+async function deleteText(t) {
+  await supabase.from('texts').delete().eq('id', t.id)
+  loadAll()
+}
+
+// ---- 任务管理 ----
+const showTask = ref(false)
+const taskForm = ref(null)
+function newTask() {
+  taskForm.value = {
+    title: '', note: '', text_id: null,
+    range: [Date.now(), Date.now() + 7 * 86400000],
+    duration_min: 5, allow_retry: true, score_rule: 'best', status: 'open',
+    class_ids: [], excluded: [],
+  }
+  showTask.value = true
+}
+const taskFormStudents = computed(() => taskForm.value
+  ? students.value.filter(s => taskForm.value.class_ids.includes(s.class_id)) : [])
+
+async function saveTask() {
+  const f = taskForm.value
+  if (!f.title || !f.text_id || !f.class_ids.length) return message.warning('请填写标题、选择文稿和班级')
+  const { data: task, error } = await supabase.from('tasks').insert({
+    title: f.title, note: f.note, text_id: f.text_id, teacher_id: user.user.id,
+    start_at: new Date(f.range[0]).toISOString(), deadline: new Date(f.range[1]).toISOString(),
+    duration_sec: f.duration_min * 60, allow_retry: f.allow_retry, score_rule: f.score_rule, status: f.status,
+  }).select().single()
+  if (error) return message.error(error.message)
+  const targets = taskFormStudents.value.filter(s => !f.excluded.includes(s.id))
+  if (targets.length) {
+    await supabase.from('task_students').insert(targets.map(s => ({ task_id: task.id, student_id: s.id })))
+  }
+  message.success(`任务已发布，共指派 ${targets.length} 名学生`)
+  showTask.value = false
+  loadAll()
+}
+async function setTaskStatus(t, status) {
+  await supabase.from('tasks').update({ status }).eq('id', t.id)
+  loadAll()
+}
+async function deleteTask(t) {
+  await supabase.from('tasks').delete().eq('id', t.id)
+  loadAll()
+}
+
+// ---- 成绩查询与导出 ----
+const viewTask = ref(null)
+const taskDetailRecs = computed(() => {
+  if (!viewTask.value) return []
+  const rule = viewTask.value.score_rule
+  const byStu = {}
+  for (const r of records.value.filter(r => r.task_id === viewTask.value.id)) {
+    const cur = byStu[r.student_id]
+    if (!cur) byStu[r.student_id] = r
+    else if (rule === 'best' ? Number(r.cpm) > Number(cur.cpm) : new Date(r.submitted_at) > new Date(cur.submitted_at)) byStu[r.student_id] = r
+  }
+  return Object.values(byStu).map(r => ({ ...r, stu: stuMap.value[r.student_id] }))
+    .sort((a, b) => Number(b.cpm) - Number(a.cpm))
+})
+function exportCsv() {
+  const rows = [['学号', '姓名', '班级', 'CPM', 'WPM', '准确率%', '用时s', '错误数', '提交时间']]
+  for (const r of taskDetailRecs.value) {
+    rows.push([r.stu?.student_no, r.stu?.name, classMap.value[r.stu?.class_id] || '', Math.round(r.cpm), Math.round(r.wpm), r.accuracy, r.duration_sec, r.errors, new Date(r.submitted_at).toLocaleString('zh-CN')])
+  }
+  const csv = '﻿' + rows.map(r => r.join(',')).join('\n')
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
+  a.download = `${viewTask.value.title}-成绩.csv`
+  a.click()
+}
+
+// ---- 成就配置 ----
+async function saveAch(a) {
+  await supabase.from('achievements').update({ title: a.title, description: a.description, threshold: a.threshold, icon: a.icon }).eq('id', a.id)
+  message.success('已保存')
+}
+
+// ---- 教师账号（超管） ----
+const teacherForm = ref({ account: '', name: '', password: '' })
+async function createTeacher() {
+  const f = teacherForm.value
+  if (!f.account || !f.name || !f.password) return message.warning('请填写完整')
+  const { data, error } = await supabase.rpc('fn_create_teacher', { p_actor: user.user.id, p_account: f.account, p_name: f.name, p_password: f.password })
+  if (error || !data.ok) return message.error(error?.message || data.msg)
+  message.success('教师账号已创建')
+  teacherForm.value = { account: '', name: '', password: '' }
+}
+
+const LANGS = [{ label: '中文', value: 'zh' }, { label: '英文', value: 'en' }, { label: '数字符号', value: 'num' }, { label: '混合', value: 'mix' }]
+const STATUS_TAG = { draft: ['草稿', 'default'], open: ['进行中', 'success'], closed: ['已截止', 'warning'], archived: ['已归档', 'default'] }
+</script>
+
+<template>
+  <div>
+    <h2 style="margin-top:0">🛠️ 教学管理</h2>
+    <n-spin :show="loading">
+      <n-tabs type="line" size="large">
+        <!-- 班级总览 -->
+        <n-tab-pane name="overview" tab="📊 班级总览">
+          <n-empty v-if="!classes.length" description="还没有班级，先到「学生管理」导入学生" />
+          <n-grid v-else :cols="3" :x-gap="14" :y-gap="14" item-responsive responsive="screen">
+            <n-gi v-for="c in classStats" :key="c.id" span="3 m:1">
+              <n-card :title="c.name" size="small">
+                <n-space>
+                  <n-statistic label="人数" :value="c.count" />
+                  <n-statistic label="平均CPM" :value="c.avgCpm" />
+                  <n-statistic label="平均准确率" :value="c.avgAcc" />
+                  <n-statistic label="今日打卡" :value="`${c.checkedToday}/${c.count}`" />
+                </n-space>
+              </n-card>
+            </n-gi>
+          </n-grid>
+        </n-tab-pane>
+
+        <!-- 学生管理 -->
+        <n-tab-pane name="students" tab="👥 学生管理">
+          <n-card size="small" title="批量导入学生" style="margin-bottom: 14px">
+            <p style="opacity:.65;font-size:13px;margin-top:0">每行一名学生：<code>学号,姓名,班级</code>（支持逗号/Tab 分隔，班级不存在会自动创建；默认密码 123）</p>
+            <n-input v-model:value="importText" type="textarea" :rows="5" placeholder="20240101,张三,电商2401&#10;20240102,李四,电商2401" />
+            <n-button type="primary" style="margin-top: 10px" :loading="importing" @click="doImport">导入</n-button>
+          </n-card>
+          <n-card size="small" title="学生列表">
+            <n-select v-model:value="stuClassFilter" clearable placeholder="按班级筛选" style="width: 200px; margin-bottom: 10px"
+              :options="classes.map(c => ({ label: c.name, value: c.id }))" />
+            <n-table size="small" :single-line="false">
+              <thead><tr><th>学号</th><th>姓名</th><th>班级</th><th>操作</th></tr></thead>
+              <tbody>
+                <tr v-for="s in filteredStudents" :key="s.id">
+                  <td>{{ s.student_no }}</td><td>{{ s.name }}</td><td>{{ classMap[s.class_id] || '—' }}</td>
+                  <td>
+                    <n-space size="small">
+                      <n-button size="tiny" @click="resetPwd(s)">重置密码</n-button>
+                      <n-popconfirm @positive-click="removeStudent(s)"><template #trigger><n-button size="tiny" type="error" quaternary>删除</n-button></template>确定删除 {{ s.name }}？所有成绩也会删除。</n-popconfirm>
+                    </n-space>
+                  </td>
+                </tr>
+              </tbody>
+            </n-table>
+          </n-card>
+        </n-tab-pane>
+
+        <!-- 文稿管理 -->
+        <n-tab-pane name="texts" tab="📄 文稿管理">
+          <n-button type="primary" @click="showText = true" style="margin-bottom: 12px">＋ 添加文稿</n-button>
+          <n-table size="small" :single-line="false">
+            <thead><tr><th>标题</th><th>语言</th><th>难度</th><th>来源</th><th>字数</th><th>操作</th></tr></thead>
+            <tbody>
+              <tr v-for="t in texts" :key="t.id">
+                <td>{{ t.title }}</td>
+                <td>{{ LANGS.find(l => l.value === t.lang)?.label }}</td>
+                <td>{{ ['', '初级', '中级', '高级'][t.difficulty] }}</td>
+                <td>{{ t.source === 'builtin' ? '内置' : '学生' }}</td>
+                <td>{{ t.content.length }}</td>
+                <td><n-popconfirm @positive-click="deleteText(t)"><template #trigger><n-button size="tiny" type="error" quaternary>删除</n-button></template>确定删除？</n-popconfirm></td>
+              </tr>
+            </tbody>
+          </n-table>
+        </n-tab-pane>
+
+        <!-- 任务管理 -->
+        <n-tab-pane name="tasks" tab="📋 任务管理">
+          <n-button type="primary" @click="newTask" style="margin-bottom: 12px">＋ 发布任务</n-button>
+          <n-empty v-if="!tasks.length" description="还没有任务" />
+          <n-card v-for="t in tasks" :key="t.id" size="small" style="margin-bottom: 10px">
+            <n-space justify="space-between" align="center">
+              <div>
+                <b>{{ t.title }}</b>
+                <n-tag size="tiny" round :type="STATUS_TAG[t.status][1]" style="margin-left: 8px">{{ STATUS_TAG[t.status][0] }}</n-tag>
+                <div style="font-size:12px;opacity:.6;margin-top:4px">
+                  {{ new Date(t.start_at).toLocaleString('zh-CN') }} ~ {{ new Date(t.deadline).toLocaleString('zh-CN') }}
+                  ｜ {{ Math.round(t.duration_sec / 60) }} 分钟 ｜ {{ t.score_rule === 'best' ? '取最高分' : '取最后一次' }}
+                  ｜ 提交 {{ records.filter(r => r.task_id === t.id).length }} 次
+                </div>
+              </div>
+              <n-space size="small">
+                <n-button size="tiny" @click="viewTask = t">查看成绩</n-button>
+                <n-button v-if="t.status === 'open'" size="tiny" @click="setTaskStatus(t, 'closed')">截止</n-button>
+                <n-button v-else-if="t.status === 'closed'" size="tiny" @click="setTaskStatus(t, 'archived')">归档</n-button>
+                <n-button v-if="t.status === 'draft'" size="tiny" type="primary" @click="setTaskStatus(t, 'open')">发布</n-button>
+                <n-popconfirm @positive-click="deleteTask(t)"><template #trigger><n-button size="tiny" type="error" quaternary>删除</n-button></template>确定删除任务及其全部成绩？</n-popconfirm>
+              </n-space>
+            </n-space>
+          </n-card>
+
+          <!-- 成绩详情 -->
+          <n-modal :show="!!viewTask" preset="card" :title="`成绩 — ${viewTask?.title || ''}`" style="max-width: 760px" @update:show="v => !v && (viewTask = null)">
+            <n-space justify="end" style="margin-bottom: 10px">
+              <n-button size="small" @click="exportCsv" :disabled="!taskDetailRecs.length">📥 导出 CSV</n-button>
+            </n-space>
+            <n-empty v-if="!taskDetailRecs.length" description="还没有学生提交" />
+            <n-table v-else size="small" :single-line="false">
+              <thead><tr><th>#</th><th>学号</th><th>姓名</th><th>班级</th><th>CPM</th><th>准确率</th><th>用时</th><th>错误</th><th>提交时间</th></tr></thead>
+              <tbody>
+                <tr v-for="(r, i) in taskDetailRecs" :key="r.id">
+                  <td>{{ i + 1 }}</td><td>{{ r.stu?.student_no }}</td><td>{{ r.stu?.name }}</td>
+                  <td>{{ classMap[r.stu?.class_id] }}</td>
+                  <td><b>{{ Math.round(r.cpm) }}</b></td><td>{{ r.accuracy }}%</td>
+                  <td>{{ r.duration_sec }}s</td><td>{{ r.errors }}</td>
+                  <td style="font-size:12px">{{ new Date(r.submitted_at).toLocaleString('zh-CN') }}</td>
+                </tr>
+              </tbody>
+            </n-table>
+          </n-modal>
+
+          <!-- 新建任务 -->
+          <n-modal v-model:show="showTask" preset="card" title="发布新任务" style="max-width: 620px">
+            <n-space vertical v-if="taskForm">
+              <n-input v-model:value="taskForm.title" placeholder="任务标题，如：第3周打字测验" />
+              <n-input v-model:value="taskForm.note" placeholder="任务说明/备注（可选）" />
+              <n-select v-model:value="taskForm.text_id" placeholder="选择练习文稿"
+                :options="texts.map(t => ({ label: `${t.title}（${t.content.length}字）`, value: t.id }))" />
+              <n-space align="center">
+                <span>起止时间</span>
+                <n-date-picker v-model:value="taskForm.range" type="datetimerange" />
+              </n-space>
+              <n-space align="center">
+                <span>练习时长</span>
+                <n-input-number v-model:value="taskForm.duration_min" :min="1" :max="60" style="width: 110px"><template #suffix>分钟</template></n-input-number>
+                <span style="margin-left:12px">允许重复提交</span>
+                <n-switch v-model:value="taskForm.allow_retry" />
+                <n-radio-group v-model:value="taskForm.score_rule" size="small" :disabled="!taskForm.allow_retry">
+                  <n-radio-button value="best">取最高分</n-radio-button>
+                  <n-radio-button value="last">取最后一次</n-radio-button>
+                </n-radio-group>
+              </n-space>
+              <div>
+                <b>指定班级（可多选）：</b>
+                <n-checkbox-group v-model:value="taskForm.class_ids" style="margin-top: 6px">
+                  <n-checkbox v-for="c in classes" :key="c.id" :value="c.id" :label="c.name" />
+                </n-checkbox-group>
+              </div>
+              <div v-if="taskFormStudents.length">
+                <b>学生名单（{{ taskFormStudents.length - taskForm.excluded.length }} 人，点击可排除个别学生）：</b>
+                <n-space style="margin-top: 6px" :size="4">
+                  <n-tag v-for="s in taskFormStudents" :key="s.id" round size="small" style="cursor:pointer"
+                    :type="taskForm.excluded.includes(s.id) ? 'default' : 'success'"
+                    @click="taskForm.excluded.includes(s.id) ? taskForm.excluded = taskForm.excluded.filter(x => x !== s.id) : taskForm.excluded.push(s.id)">
+                    {{ taskForm.excluded.includes(s.id) ? '✕ ' : '' }}{{ s.name }}
+                  </n-tag>
+                </n-space>
+              </div>
+              <n-radio-group v-model:value="taskForm.status" size="small">
+                <n-radio-button value="open">立即发布</n-radio-button>
+                <n-radio-button value="draft">存为草稿</n-radio-button>
+              </n-radio-group>
+              <n-button type="primary" block @click="saveTask">确认发布</n-button>
+            </n-space>
+          </n-modal>
+        </n-tab-pane>
+
+        <!-- 成就配置 -->
+        <n-tab-pane name="ach" tab="🏅 成就配置">
+          <p style="opacity:.65;font-size:13px">可自定义成就名称、说明、图标与阈值（如 CPM 门槛、连续打卡天数）</p>
+          <n-table size="small" :single-line="false">
+            <thead><tr><th style="width:60px">图标</th><th style="width:140px">名称</th><th>说明</th><th style="width:100px">阈值</th><th style="width:80px"></th></tr></thead>
+            <tbody>
+              <tr v-for="a in achievements" :key="a.id">
+                <td><n-input v-model:value="a.icon" size="small" /></td>
+                <td><n-input v-model:value="a.title" size="small" /></td>
+                <td><n-input v-model:value="a.description" size="small" /></td>
+                <td><n-input-number v-model:value="a.threshold" size="small" :show-button="false" /></td>
+                <td><n-button size="tiny" type="primary" @click="saveAch(a)">保存</n-button></td>
+              </tr>
+            </tbody>
+          </n-table>
+        </n-tab-pane>
+
+        <!-- 教师账号（超管专属） -->
+        <n-tab-pane v-if="user.isSuper" name="teachers" tab="👩‍🏫 教师账号">
+          <n-card size="small" title="创建教师账号" style="max-width: 460px">
+            <n-space vertical>
+              <n-input v-model:value="teacherForm.account" placeholder="登录账号" />
+              <n-input v-model:value="teacherForm.name" placeholder="教师姓名" />
+              <n-input v-model:value="teacherForm.password" type="password" show-password-on="click" placeholder="登录密码" />
+              <n-button type="primary" @click="createTeacher">创建</n-button>
+            </n-space>
+          </n-card>
+        </n-tab-pane>
+      </n-tabs>
+    </n-spin>
+
+    <!-- 添加文稿弹窗 -->
+    <n-modal v-model:show="showText" preset="card" title="添加内置文稿" style="max-width: 560px">
+      <n-space vertical>
+        <n-input v-model:value="textForm.title" placeholder="文稿标题" />
+        <n-space>
+          <n-select v-model:value="textForm.lang" :options="LANGS" style="width: 140px" />
+          <n-select v-model:value="textForm.difficulty" style="width: 140px"
+            :options="[{ label: '初级', value: 1 }, { label: '中级', value: 2 }, { label: '高级', value: 3 }]" />
+        </n-space>
+        <n-input v-model:value="textForm.content" type="textarea" :rows="8" placeholder="文稿内容" />
+        <n-button type="primary" @click="saveText">保存</n-button>
+      </n-space>
+    </n-modal>
+  </div>
+</template>
