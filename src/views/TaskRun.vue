@@ -1,6 +1,6 @@
 <script setup>
-// 任务执行页：文稿预览 → 计时练习 → 提交成绩 + 对比
-import { ref, onMounted } from 'vue'
+// 任务执行页：文稿预览 → 计时练习 → 提交成绩 + 对比；练习中向教师大屏实时广播
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { NCard, NButton, NSpin, NSpace, NTag, useMessage } from 'naive-ui'
 import { supabase } from '../lib/supabase'
@@ -36,6 +36,35 @@ onMounted(async () => {
   } finally { loading.value = false }
 })
 
+// ---- 实时大屏广播：学生练习中每秒向 task-live 频道发送一次成绩 ----
+let liveChannel = null
+let lastSend = 0
+function ensureChannel() {
+  if (liveChannel) return
+  liveChannel = supabase.channel(`task-live-${route.params.id}`)
+  liveChannel.subscribe()
+}
+function broadcast(s, done) {
+  try {
+    ensureChannel()
+    liveChannel?.send({
+      type: 'broadcast', event: 'progress',
+      payload: {
+        sid: user.user.id, name: user.user.name, avatar: user.user.avatar,
+        cpm: s.cpm, wpm: s.wpm, accuracy: s.accuracy, errors: s.errors,
+        chars: s.correctChars, done: !!done,
+      },
+    })
+  } catch { /* 大屏广播失败不影响练习 */ }
+}
+function onProgress(s) {
+  const now = Date.now()
+  if (now - lastSend < 1000) return
+  lastSend = now
+  broadcast(s, false)
+}
+onBeforeUnmount(() => { if (liveChannel) supabase.removeChannel(liveChannel) })
+
 function canStart() {
   if (!task.value) return false
   const now = new Date()
@@ -49,6 +78,7 @@ function canStart() {
 async function onFinish(r) {
   result.value = r
   phase.value = 'result'
+  broadcast(r, true)
   try {
     const { unlocked: list } = await saveTaskRecord(task.value.id, r, text.value?.lang || '')
     unlocked.value = list
@@ -89,7 +119,7 @@ async function onFinish(r) {
           <h2 style="margin:0">{{ task.title }}</h2>
           <n-button size="small" @click="phase = 'preview'">放弃本次</n-button>
         </n-space>
-        <TypingEngine :text="text.content" :duration-sec="task.duration_sec" :loop="true" @finish="onFinish" />
+        <TypingEngine :text="text.content" :duration-sec="task.duration_sec" :loop="true" @finish="onFinish" @progress="onProgress" />
       </div>
 
       <!-- 结果 -->

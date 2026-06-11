@@ -437,6 +437,7 @@ const STATUS_TAG = { draft: ['草稿', 'default'], open: ['进行中', 'success'
                 </div>
               </div>
               <n-space size="small">
+                <n-button v-if="t.status === 'open'" size="tiny" type="info" @click="$router.push(`/admin/live/${t.id}`)">📺 实时大屏</n-button>
                 <n-button size="tiny" @click="viewTask = t">查看成绩</n-button>
                 <n-button v-if="t.status === 'open'" size="tiny" @click="setTaskStatus(t, 'closed')">截止</n-button>
                 <n-button v-else-if="t.status === 'closed'" size="tiny" @click="setTaskStatus(t, 'archived')">归档</n-button>

@@ -17,6 +17,7 @@ const routes = [
   { path: '/leaderboard', component: () => import('./views/Leaderboard.vue') },
   { path: '/profile', component: () => import('./views/Profile.vue'), meta: { auth: true } },
   { path: '/admin', component: () => import('./views/Admin.vue'), meta: { teacher: true } },
+  { path: '/admin/live/:id', component: () => import('./views/AdminTaskLive.vue'), meta: { teacher: true } },
 ]
 
 const router = createRouter({ history: createWebHashHistory(), routes })
