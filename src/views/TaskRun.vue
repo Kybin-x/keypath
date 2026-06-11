@@ -50,7 +50,7 @@ async function onFinish(r) {
   result.value = r
   phase.value = 'result'
   try {
-    const { unlocked: list } = await saveTaskRecord(task.value.id, r)
+    const { unlocked: list } = await saveTaskRecord(task.value.id, r, text.value?.lang || '')
     unlocked.value = list
     message.success('成绩已提交')
   } catch (e) { message.error('提交失败：' + e.message) }

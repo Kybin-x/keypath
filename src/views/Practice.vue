@@ -68,11 +68,13 @@ const drillCats = computed(() => {
 })
 
 function startDrill(d) {
-  current.value = { title: d.title, content: d.gen(), id: null, isDrill: true, drill: d }
+  // 键位练习语言归类：数字/符号类不计入速度成就，字母类按英文轨
+  const lang = ['numbers', 'symbols', 'numsym', 'symcombo'].includes(d.key) ? 'num' : 'en'
+  current.value = { title: d.title, content: d.gen(), id: null, isDrill: true, drill: d, lang }
   phase.value = 'typing'
 }
 function startText(t) {
-  current.value = { title: t.title, content: t.content, id: t.id }
+  current.value = { title: t.title, content: t.content, id: t.id, lang: t.lang }
   phase.value = 'typing'
 }
 
@@ -90,7 +92,7 @@ async function startWords() {
   current.value = {
     title: `单词练习（${list.length} 词）`, id: null,
     content: list.join(' '), meanings: wb.enMap,
-    isWords: true,
+    isWords: true, lang: 'en',
   }
   phase.value = 'typing'
 }
@@ -98,7 +100,7 @@ async function startWords() {
 async function onFinish(r) {
   result.value = r
   phase.value = 'result'
-  const { saved: ok, unlocked: list } = await saveLog({ kind: 'practice', textId: current.value.id, result: r })
+  const { saved: ok, unlocked: list } = await saveLog({ kind: 'practice', textId: current.value.id, result: r, lang: current.value.lang || '' })
   saved.value = ok
   unlocked.value = list
   lastResult.value = JSON.parse(localStorage.getItem('kp_last_practice') || 'null')

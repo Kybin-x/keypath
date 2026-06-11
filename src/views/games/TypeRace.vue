@@ -149,7 +149,7 @@ async function onFinish(s) {
   state.value = 'over'
   playFx(rank === 1 ? 'win' : 'lose')
   if (rank === 1) confetti({ count: 90 })
-  const { unlocked } = await saveLog({ kind: 'game', game: 'race', result: { score: score.value, cpm: s.cpm, accuracy: s.accuracy, durationSec: s.durationSec, activeSec: s.activeSec } })
+  const { unlocked } = await saveLog({ kind: 'game', game: 'race', lang: textChoice.value, result: { score: score.value, cpm: s.cpm, accuracy: s.accuracy, durationSec: s.durationSec, activeSec: s.activeSec } })
   unlocked.forEach(a => message.info(`${a.icon} 解锁成就：${a.title}`))
 }
 

@@ -9,7 +9,8 @@ export function localDay(d = new Date()) {
 const today = () => localDay()
 
 // 保存练习/游戏日志；返回新解锁成就列表
-export async function saveLog({ kind = 'practice', game = '', textId = null, result }) {
+// lang：本次练习语言（zh/en/num/mix），用于速度成就分轨——中文看 CPM，英文看 WPM
+export async function saveLog({ kind = 'practice', game = '', textId = null, result, lang = '' }) {
   const u = useUserStore()
   const unlocked = []
   if (!u.isLogin || !(await dbAvailable())) return { saved: false, unlocked }
@@ -28,11 +29,11 @@ export async function saveLog({ kind = 'practice', game = '', textId = null, res
     const { data: c } = await supabase.from('checkins').select('practice_sec').eq('user_id', uid).eq('day', today()).maybeSingle()
     await supabase.from('checkins').upsert({ user_id: uid, day: today(), practice_sec: (c?.practice_sec || 0) + row.duration_sec })
   }
-  unlocked.push(...await evaluateAchievements({ kind, result }))
+  unlocked.push(...await evaluateAchievements({ kind, result, lang }))
   return { saved: true, unlocked }
 }
 
-export async function saveTaskRecord(taskId, result) {
+export async function saveTaskRecord(taskId, result, lang = '') {
   const u = useUserStore()
   if (!u.isLogin) return { unlocked: [] }
   await supabase.from('task_records').insert({
@@ -40,7 +41,7 @@ export async function saveTaskRecord(taskId, result) {
     cpm: result.cpm, wpm: result.wpm, accuracy: result.accuracy,
     duration_sec: result.activeSec, total_sec: result.durationSec, errors: result.errors,
   })
-  const unlocked = await evaluateAchievements({ kind: 'task', result, taskId })
+  const unlocked = await evaluateAchievements({ kind: 'task', result, taskId, lang })
   return { unlocked }
 }
 
@@ -65,7 +66,7 @@ async function streakDays(uid) {
 }
 
 // 评估并解锁成就，返回新解锁的成就对象
-export async function evaluateAchievements({ kind, result = {}, taskId = null, loginEvent = false }) {
+export async function evaluateAchievements({ kind, result = {}, taskId = null, loginEvent = false, lang = '' }) {
   const u = useUserStore()
   if (!u.isLogin || !(await dbAvailable())) return []
   const uid = u.user.id
@@ -82,11 +83,13 @@ export async function evaluateAchievements({ kind, result = {}, taskId = null, l
       case 'first_login': ok = loginEvent; break
       case 'first_practice': ok = kind === 'practice'; break
       case 'first_game': ok = kind === 'game'; break
-      case 'cpm': ok = (result.cpm || 0) >= Number(a.threshold); break
+      // 速度成就分轨：中文练习看 CPM（字/分），英文练习看 WPM（词/分）
+      case 'cpm': ok = lang === 'zh' && (result.cpm || 0) >= Number(a.threshold); break
+      case 'wpm': ok = lang === 'en' && (result.wpm || 0) >= Number(a.threshold); break
       case 'accuracy': ok = ['practice', 'task'].includes(kind) && (result.accuracy || 0) >= Number(a.threshold); break
       case 'streak': ok = (await streakDays(uid)) >= Number(a.threshold); break
       case 'night': ok = !loginEvent && (hour >= 0 && hour < 5); break
-      case 'slow_start': ok = kind === 'practice' && (result.cpm || 0) > 0 && (result.cpm || 0) < Number(a.threshold); break
+      case 'slow_start': ok = kind === 'practice' && lang === 'zh' && (result.cpm || 0) > 0 && (result.cpm || 0) < Number(a.threshold); break
       case 'retry': {
         if (kind === 'task' && taskId) {
           const { count } = await supabase.from('task_records').select('id', { count: 'exact', head: true }).eq('task_id', taskId).eq('student_id', uid)
