@@ -126,6 +126,8 @@ const visibleTexts = computed(() => user.isSuper ? texts.value
   : texts.value.filter(t => t.is_global !== false || t.owner_id === user.user.id))
 const categoryOptions = computed(() => {
   const set = new Set(texts.value.map(t => t.category).filter(Boolean))
+  // 没有任何分类时给出常用预设，引导教师建立分类体系
+  if (!set.size) ['课文', '单词', '数字符号', '专业术语'].forEach(c => set.add(c))
   return [...set].map(c => ({ label: c, value: c }))
 })
 function newText() {
@@ -329,6 +331,7 @@ async function createTeacher() {
   if (error || !data.ok) return message.error(error?.message || data.msg)
   message.success('教师账号已创建')
   teacherForm.value = { account: '', name: '', password: '' }
+  loadAll()  // 列表即时刷新
 }
 
 const LANGS = [{ label: '中文', value: 'zh' }, { label: '英文', value: 'en' }, { label: '数字符号', value: 'num' }, { label: '混合', value: 'mix' }]
@@ -511,33 +514,30 @@ const STATUS_TAG = { draft: ['草稿', 'default'], open: ['进行中', 'success'
 
         <!-- 词库管理 -->
         <n-tab-pane name="gamewords" tab="📚 词库管理">
-          <p style="opacity:.65;font-size:13px;margin-top:0">
-            单词词库供「单词练习」和所有游戏的英文模式使用，打对单词会显示中文释义。
-            {{ user.isSuper ? '你保存的单词全站可用。' : '你保存的单词仅对你的班级生效（与全站词库合并）。' }}
-          </p>
-          <n-grid :cols="2" :x-gap="14" item-responsive responsive="screen">
-            <n-gi span="2 m:1">
-              <n-card size="small" title="英文单词 + 中文释义">
+          <n-card size="small">
+            <n-tabs type="segment" animated>
+              <n-tab-pane name="en" tab="🔤 英文单词词库">
+                <p style="opacity:.65;font-size:13px;margin-top:4px">
+                  供「单词练习」和所有游戏的英文模式使用，打对单词即显示中文释义。每行一个：<code>单词,中文释义</code>。
+                  {{ user.isSuper ? '你保存的单词全站可用。' : '你保存的单词仅对你的班级生效（与全站词库合并）。' }}
+                </p>
                 <n-space style="margin-bottom: 10px" :size="8">
                   <n-button size="small" @click="downloadWordTemplate">📥 下载 Excel 模板</n-button>
                   <n-upload :show-file-list="false" accept=".xlsx,.csv,.txt" :custom-request="importWordsFile">
                     <n-button size="small">📂 从 Excel / CSV 导入</n-button>
                   </n-upload>
+                  <n-button size="small" @click="resetWordPairs">恢复默认</n-button>
                 </n-space>
-                <n-input v-model:value="wordPairs" type="textarea" :rows="12" placeholder="每行一个：单词,中文释义&#10;cat,猫&#10;speed,速度" />
+                <n-input v-model:value="wordPairs" type="textarea" :rows="14" placeholder="每行一个：单词,中文释义&#10;cat,猫&#10;speed,速度" />
                 <n-button type="primary" style="margin-top: 10px" @click="saveWordPairs">保存单词词库</n-button>
-              </n-card>
-            </n-gi>
-            <n-gi span="2 m:1">
-              <n-card size="small" title="中文词语（游戏中文模式）">
-                <n-input v-model:value="gameWordsZh" type="textarea" :rows="12" placeholder="每行一个词语" />
-                <n-space style="margin-top: 10px">
-                  <n-button type="primary" @click="saveZhWords">保存中文词库</n-button>
-                  <n-button @click="resetWordPairs">恢复默认</n-button>
-                </n-space>
-              </n-card>
-            </n-gi>
-          </n-grid>
+              </n-tab-pane>
+              <n-tab-pane name="zh" tab="🀄 中文词语词库">
+                <p style="opacity:.65;font-size:13px;margin-top:4px">供游戏的中文模式使用（太空射击 / 消消乐 / 打地鼠等），每行一个词语。保存后对全体学生生效。</p>
+                <n-input v-model:value="gameWordsZh" type="textarea" :rows="14" placeholder="每行一个词语" />
+                <n-button type="primary" style="margin-top: 10px" @click="saveZhWords">保存中文词库</n-button>
+              </n-tab-pane>
+            </n-tabs>
+          </n-card>
         </n-tab-pane>
 
         <!-- 成就配置 -->
@@ -600,17 +600,27 @@ const STATUS_TAG = { draft: ['草稿', 'default'], open: ['进行中', 'success'
     <!-- 添加文稿弹窗 -->
     <n-modal v-model:show="showText" preset="card" :title="textForm.id ? '编辑文稿' : '添加内置文稿'" style="max-width: 560px">
       <n-space vertical>
-        <n-input v-model:value="textForm.title" placeholder="文稿标题" />
+        <div class="tf-field"><span class="tf-label">标题</span><n-input v-model:value="textForm.title" placeholder="文稿标题" /></div>
         <n-space>
-          <n-select v-model:value="textForm.lang" :options="LANGS" style="width: 130px" />
-          <n-select v-model:value="textForm.difficulty" style="width: 110px"
-            :options="[{ label: '初级', value: 1 }, { label: '中级', value: 2 }, { label: '高级', value: 3 }]" />
-          <n-select v-model:value="textForm.category" filterable tag clearable placeholder="分类（可输入新分类）"
-            :options="categoryOptions" style="width: 200px" />
+          <div class="tf-field"><span class="tf-label">语言</span>
+            <n-select v-model:value="textForm.lang" :options="LANGS" style="width: 120px" /></div>
+          <div class="tf-field"><span class="tf-label">难度</span>
+            <n-select v-model:value="textForm.difficulty" style="width: 100px"
+              :options="[{ label: '初级', value: 1 }, { label: '中级', value: 2 }, { label: '高级', value: 3 }]" /></div>
+          <div class="tf-field"><span class="tf-label">分类</span>
+            <n-select v-model:value="textForm.category" filterable tag clearable placeholder="选择或输入新分类"
+              :options="categoryOptions" style="width: 200px" /></div>
         </n-space>
+        <p style="margin:0;font-size:12px;opacity:.55">分类用于学生练习页快速筛选，如「课文」「专业术语」；下拉中直接输入文字并回车即可创建新分类</p>
         <n-input v-model:value="textForm.content" type="textarea" :rows="8" placeholder="文稿内容" />
         <n-button type="primary" @click="saveText">保存</n-button>
       </n-space>
     </n-modal>
   </div>
 </template>
+
+<style scoped>
+.tf-field { display: flex; align-items: center; gap: 8px; }
+.tf-field > .n-input { flex: 1; }
+.tf-label { font-size: 13px; white-space: nowrap; opacity: .75; }
+</style>

@@ -1,6 +1,6 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, h, ref, watch } from 'vue'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import {
   NConfigProvider, NMessageProvider, NDialogProvider, NLayout, NLayoutSider, NLayoutHeader,
   NLayoutContent, NMenu, NButton, NDropdown, NAvatar, darkTheme, zhCN, dateZhCN,
@@ -15,16 +15,18 @@ const route = useRoute()
 const router = useRouter()
 const collapsed = ref(window.innerWidth < 900)
 
+// label 渲染为 RouterLink：无论菜单选中态如何，点击始终可靠跳转
+const mi = (path, text) => ({ key: path, label: () => h(RouterLink, { to: path }, { default: () => text }) })
 const menuOptions = computed(() => {
   const m = [
-    { label: '🏠 首页', key: '/' },
-    { label: '⌨️ 打字练习', key: '/practice' },
-    { label: '🎮 打字游戏', key: '/games' },
+    mi('/', '🏠 首页'),
+    mi('/practice', '⌨️ 打字练习'),
+    mi('/games', '🎮 打字游戏'),
   ]
-  if (user.isLogin && !user.isTeacher) m.push({ label: '📋 我的任务', key: '/tasks' })
-  m.push({ label: '🏆 排行榜', key: '/leaderboard' })
-  if (user.isLogin) m.push({ label: '👤 个人中心', key: '/profile' })
-  if (user.isTeacher) m.push({ label: '🛠️ 教学管理', key: '/admin' })
+  if (user.isLogin && !user.isTeacher) m.push(mi('/tasks', '📋 我的任务'))
+  m.push(mi('/leaderboard', '🏆 排行榜'))
+  if (user.isLogin) m.push(mi('/profile', '👤 个人中心'))
+  if (user.isTeacher) m.push(mi('/admin', '🛠️ 教学管理'))
   return m
 })
 
@@ -99,8 +101,8 @@ watch(() => user.user?.id, id => { if (id) settings.loadRemote(id) }, { immediat
                 <n-layout-sider bordered collapse-mode="width" :collapsed-width="56" :width="190"
                   :collapsed="collapsed" show-trigger @collapse="collapsed = true" @expand="collapsed = false"
                   :native-scrollbar="false" :style="glassStyle">
-                  <n-menu :value="route.path" :options="menuOptions" :collapsed="collapsed"
-                    :collapsed-width="56" @update:value="k => router.push(k)" />
+                  <n-menu :value="'/' + route.path.split('/')[1]" :options="menuOptions" :collapsed="collapsed"
+                    :collapsed-width="56" @update:value="k => route.path !== k && router.push(k)" />
                 </n-layout-sider>
                 <n-layout-content :native-scrollbar="false"
                   :content-style="{ padding: '20px', minHeight: '100%', ...contentGlass }" style="background: transparent">

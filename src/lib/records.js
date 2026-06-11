@@ -16,7 +16,7 @@ export async function saveLog({ kind = 'practice', game = '', textId = null, res
   if (!u.isLogin || !(await dbAvailable())) return { saved: false, unlocked }
   const uid = u.user.id
   const row = {
-    user_id: uid, kind, game,
+    user_id: uid, kind, game, lang,
     text_id: textId && String(textId).length === 36 ? textId : null,
     cpm: result.cpm || 0, wpm: result.wpm || 0, accuracy: result.accuracy || 0,
     score: result.score || 0, duration_sec: result.activeSec || result.durationSec || 0,
@@ -37,7 +37,7 @@ export async function saveTaskRecord(taskId, result, lang = '') {
   const u = useUserStore()
   if (!u.isLogin) return { unlocked: [] }
   await supabase.from('task_records').insert({
-    task_id: taskId, student_id: u.user.id,
+    task_id: taskId, student_id: u.user.id, lang,
     cpm: result.cpm, wpm: result.wpm, accuracy: result.accuracy,
     duration_sec: result.activeSec, total_sec: result.durationSec, errors: result.errors,
   })

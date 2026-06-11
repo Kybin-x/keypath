@@ -17,6 +17,8 @@ const achCount = ref({})
 
 const period = ref('week') // week | month | all
 const metric = ref('cpm')  // cpm | accuracy | composite
+const langFilter2 = ref('all') // all | zh | en
+const matchLang = r => langFilter2.value === 'all' || r.lang === langFilter2.value
 const gameFilter = ref('space')
 const classFilter = ref(null)
 
@@ -33,8 +35,8 @@ onMounted(async () => {
     const [u, c, l, t, a] = await Promise.all([
       supabase.from('users').select('id, name, student_no, class_id, avatar, role').eq('role', 'student'),
       supabase.from('classes').select('*'),
-      supabase.from('practice_logs').select('user_id, kind, game, cpm, accuracy, score, created_at').order('created_at', { ascending: false }).limit(5000),
-      supabase.from('task_records').select('student_id, cpm, accuracy, submitted_at').order('submitted_at', { ascending: false }).limit(5000),
+      supabase.from('practice_logs').select('user_id, kind, game, lang, cpm, wpm, accuracy, score, created_at').order('created_at', { ascending: false }).limit(5000),
+      supabase.from('task_records').select('student_id, lang, cpm, wpm, accuracy, submitted_at').order('submitted_at', { ascending: false }).limit(5000),
       supabase.from('user_achievements').select('user_id'),
     ])
     users.value = u.data || []
@@ -66,8 +68,10 @@ function buildBoard(classId = null) {
     const cur = best[uid] || { cpm: 0, accuracy: 0 }
     best[uid] = { cpm: Math.max(cur.cpm, Number(cpm)), accuracy: Math.max(cur.accuracy, Number(acc)) }
   }
-  for (const r of logs.value) if (r.kind === 'practice' && inPeriod(r.created_at)) add(r.user_id, r.cpm, r.accuracy)
-  for (const r of taskRecs.value) if (inPeriod(r.submitted_at)) add(r.student_id, r.cpm, r.accuracy)
+  // 英文榜按 WPM 排序展示，中文/全部按 CPM
+  const speedOf = r => langFilter2.value === 'en' ? Number(r.wpm || 0) : Number(r.cpm)
+  for (const r of logs.value) if (r.kind === 'practice' && inPeriod(r.created_at) && matchLang(r)) add(r.user_id, speedOf(r), r.accuracy)
+  for (const r of taskRecs.value) if (inPeriod(r.submitted_at) && matchLang(r)) add(r.student_id, speedOf(r), r.accuracy)
   const rows = Object.entries(best).map(([uid, b]) => ({
     user: userMap.value[uid], ...b,
     composite: b.cpm * (b.accuracy / 100),
@@ -103,8 +107,8 @@ const progressBoard = computed(() => {
     if (age < days) a.cur.push(Number(cpm))
     else if (age < days * 2) a.prev.push(Number(cpm))
   }
-  for (const r of logs.value) if (r.kind === 'practice') add(r.user_id, r.cpm, r.created_at)
-  for (const r of taskRecs.value) add(r.student_id, r.cpm, r.submitted_at)
+  for (const r of logs.value) if (r.kind === 'practice' && matchLang(r)) add(r.user_id, r.cpm, r.created_at)
+  for (const r of taskRecs.value) if (matchLang(r)) add(r.student_id, r.cpm, r.submitted_at)
   const avg = arr => arr.length ? arr.reduce((x, y) => x + y, 0) / arr.length : 0
   return Object.entries(agg)
     .filter(([, a]) => a.cur.length && a.prev.length)
@@ -132,16 +136,21 @@ const medal = i => ['🥇', '🥈', '🥉'][i] || `${i + 1}`
           <n-radio-button value="accuracy">按准确率</n-radio-button>
           <n-radio-button value="composite">综合评分</n-radio-button>
         </n-radio-group>
+        <n-radio-group v-model:value="langFilter2" size="small">
+          <n-radio-button value="all">全部语言</n-radio-button>
+          <n-radio-button value="zh">中文（CPM）</n-radio-button>
+          <n-radio-button value="en">英文（WPM）</n-radio-button>
+        </n-radio-group>
       </n-space>
 
       <n-tabs type="line" size="large">
         <n-tab-pane name="global" tab="🌍 全体排行">
-          <BoardTable :rows="globalBoard" :metric="metric" :class-map="classMap" :me="user.user?.id" :medal="medal" />
+          <BoardTable :rows="globalBoard" :metric="metric" :unit="langFilter2 === 'en' ? 'WPM' : 'CPM'" :class-map="classMap" :me="user.user?.id" :medal="medal" />
         </n-tab-pane>
         <n-tab-pane name="class" tab="🏫 班级排行">
           <n-select v-model:value="classFilter" :options="classes.map(c => ({ label: c.name, value: c.id }))"
             style="width: 200px; margin-bottom: 12px" placeholder="选择班级" />
-          <BoardTable :rows="classBoard" :metric="metric" :class-map="classMap" :me="user.user?.id" :medal="medal" />
+          <BoardTable :rows="classBoard" :metric="metric" :unit="langFilter2 === 'en' ? 'WPM' : 'CPM'" :class-map="classMap" :me="user.user?.id" :medal="medal" />
         </n-tab-pane>
         <n-tab-pane name="game" tab="🎮 游戏排行">
           <n-select v-model:value="gameFilter" :options="GAMES" style="width: 200px; margin-bottom: 12px" />
@@ -180,7 +189,7 @@ import { NEmpty as Empty2, NAvatar as Av, NTag as Tg } from 'naive-ui'
 import { avatarUrl as au } from '../lib/avatar'
 
 const BoardTable = defineComponent({
-  props: ['rows', 'metric', 'classMap', 'me', 'medal'],
+  props: ['rows', 'metric', 'unit', 'classMap', 'me', 'medal'],
   setup(p) {
     return () => !p.rows.length
       ? h(Empty2, { description: '暂无数据，先去练习吧！' })
@@ -190,7 +199,7 @@ const BoardTable = defineComponent({
         h('span', { class: 'name' }, r.user.name),
         h('span', { class: 'cls' }, p.classMap[r.user.class_id] || ''),
         h('span', { class: 'val' }, p.metric === 'accuracy' ? r.accuracy.toFixed(1) + '%'
-          : p.metric === 'composite' ? Math.round(r.composite) + ' 分' : Math.round(r.cpm) + ' CPM'),
+          : p.metric === 'composite' ? Math.round(r.composite) + ' 分' : Math.round(r.cpm) + ' ' + (p.unit || 'CPM')),
         h('span', { class: 'sub' }, `准确率 ${r.accuracy.toFixed(1)}%`),
         r.badges ? h(Tg, { size: 'tiny', round: true }, () => `🏅 ×${r.badges}`) : null,
       ]))

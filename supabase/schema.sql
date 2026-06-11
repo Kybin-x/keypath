@@ -72,6 +72,7 @@ create table if not exists task_records (
   id uuid primary key default gen_random_uuid(),
   task_id uuid references tasks(id) on delete cascade,
   student_id uuid references users(id) on delete cascade,
+  lang text default '',              -- 练习语言（zh/en/num/mix），用于成绩分轨
   cpm numeric not null default 0,
   wpm numeric not null default 0,
   accuracy numeric not null default 0,
@@ -89,6 +90,7 @@ create table if not exists practice_logs (
   user_id uuid references users(id) on delete cascade,
   kind text not null default 'practice' check (kind in ('practice','game')),
   game text default '',              -- 游戏类型标识
+  lang text default '',              -- 练习语言（zh/en/num/mix）
   text_id uuid,
   cpm numeric default 0,
   wpm numeric default 0,
@@ -100,6 +102,9 @@ create table if not exists practice_logs (
   created_at timestamptz default now()
 );
 create index if not exists idx_practice_logs_user on practice_logs(user_id, created_at);
+-- 旧库升级（重复运行无副作用）
+alter table practice_logs add column if not exists lang text default '';
+alter table task_records add column if not exists lang text default '';
 
 -- ---------- 成就表 ----------
 create table if not exists achievements (

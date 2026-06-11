@@ -26,33 +26,43 @@ const checkins = ref([])
 const trendEl = ref(null)
 let trendChart = null
 
+const accountStart = ref(null)
+
 onMounted(async () => {
   if (!(await dbAvailable())) { loading.value = false; return }
   try {
     const uid = user.user.id
-    const [t, l, a, m, c] = await Promise.all([
+    const [t, l, a, m, c, me] = await Promise.all([
       supabase.from('task_records').select('*, tasks(title)').eq('student_id', uid).order('submitted_at'),
       supabase.from('practice_logs').select('*').eq('user_id', uid).order('created_at'),
       supabase.from('achievements').select('*').order('sort'),
       supabase.from('user_achievements').select('*').eq('user_id', uid),
       supabase.from('checkins').select('*').eq('user_id', uid),
+      supabase.from('users').select('created_at').eq('id', uid).maybeSingle(),
     ])
     taskRecs.value = t.data || []
     logs.value = l.data || []
     achievements.value = a.data || []
     myAch.value = m.data || []
     checkins.value = c.data || []
+    accountStart.value = me.data?.created_at || null
   } finally {
     loading.value = false
     nextTick(renderTrend)
   }
 })
 
-// ---- 成绩趋势（CPM / 准确率 双轴） ----
+// ---- 成绩趋势（CPM / 准确率 双轴），可按语言筛选 ----
+const langView = ref('all')
+const LANG_VIEWS = [
+  { label: '全部', value: 'all' }, { label: '中文', value: 'zh' },
+  { label: '英文', value: 'en' }, { label: '数字符号', value: 'num' },
+]
+const matchLang = r => langView.value === 'all' || r.lang === langView.value
 const trendData = computed(() => {
   const rows = [
-    ...taskRecs.value.map(r => ({ d: r.submitted_at, cpm: Number(r.cpm), acc: Number(r.accuracy), tag: '任务' })),
-    ...logs.value.filter(r => r.kind === 'practice').map(r => ({ d: r.created_at, cpm: Number(r.cpm), acc: Number(r.accuracy), tag: '练习' })),
+    ...taskRecs.value.filter(matchLang).map(r => ({ d: r.submitted_at, cpm: Number(r.cpm), acc: Number(r.accuracy), tag: '任务' })),
+    ...logs.value.filter(r => r.kind === 'practice' && matchLang(r)).map(r => ({ d: r.created_at, cpm: Number(r.cpm), acc: Number(r.accuracy), tag: '练习' })),
   ].sort((a, b) => new Date(a.d) - new Date(b.d))
   return rows.slice(-60)
 })
@@ -78,12 +88,13 @@ function renderTrend() {
 watch(trendData, () => nextTick(renderTrend))
 
 const bestStats = computed(() => {
-  const practice = logs.value.filter(l => l.kind === 'practice')
-  const all = [...practice, ...taskRecs.value]
+  const practice = logs.value.filter(l => l.kind === 'practice' && matchLang(l))
+  const all = [...practice, ...taskRecs.value.filter(matchLang)]
   return {
     bestCpm: Math.round(Math.max(0, ...all.map(r => Number(r.cpm)))),
-    bestAcc: Math.max(0, ...all.map(r => Number(r.accuracy))).toFixed(1),
-    total: practice.length + taskRecs.value.length,
+    bestWpm: Math.round(Math.max(0, ...all.map(r => Number(r.wpm || 0)))),
+    bestAcc: all.length ? Math.max(0, ...all.map(r => Number(r.accuracy))).toFixed(1) : '0',
+    total: practice.length + taskRecs.value.filter(matchLang).length,
     games: logs.value.filter(l => l.kind === 'game').length,
   }
 })
@@ -107,9 +118,16 @@ function ymd(d) {
 const monthCalendars = computed(() => {
   const map = Object.fromEntries(checkins.value.map(c => [c.day, Number(c.practice_sec)]))
   const today = new Date()
+  // 从注册月（或更早的首次打卡月）开始累计，之前的月份不显示
+  const starts = []
+  if (accountStart.value) starts.push(new Date(accountStart.value))
+  if (checkins.value.length) starts.push(new Date(Math.min(...checkins.value.map(c => new Date(c.day + 'T00:00:00').getTime()))))
+  const earliest = starts.length ? new Date(Math.min(...starts.map(d => d.getTime()))) : today
   const months = []
-  for (let m = 5; m >= 0; m--) {  // 最近 6 个月，最新在前
-    const first = new Date(today.getFullYear(), today.getMonth() - m, 1)
+  const cursor = new Date(earliest.getFullYear(), earliest.getMonth(), 1)
+  const end = new Date(today.getFullYear(), today.getMonth(), 1)
+  while (cursor <= end && months.length < 36) {
+    const first = new Date(cursor)
     const daysInMonth = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate()
     const cells = Array.from({ length: first.getDay() }, () => null)  // 周日起始留白
     let lit = 0
@@ -121,6 +139,7 @@ const monthCalendars = computed(() => {
       cells.push({ d, key, sec, future: dt > today, today: key === ymd(today) })
     }
     months.unshift({ label: `${first.getFullYear()}年${first.getMonth() + 1}月`, cells, lit, total: daysInMonth })
+    cursor.setMonth(cursor.getMonth() + 1)
   }
   return months
 })
@@ -207,8 +226,15 @@ function fmtSec(s) { return s >= 3600 ? `${(s / 3600).toFixed(1)}h` : `${Math.ro
       <n-tabs type="line" size="large" :pane-style="{ paddingTop: '14px' }">
         <!-- 数据中心 -->
         <n-tab-pane name="data" tab="📊 数据中心" display-directive="show">
+          <n-space align="center" style="margin-bottom: 12px">
+            <span style="font-weight:600">成绩范围：</span>
+            <n-radio-group v-model:value="langView" size="small">
+              <n-radio-button v-for="v in LANG_VIEWS" :key="v.value" :value="v.value">{{ v.label }}</n-radio-button>
+            </n-radio-group>
+            <span style="opacity:.5;font-size:12px">中文看 CPM（字/分），英文看 WPM（词/分）</span>
+          </n-space>
           <n-grid :cols="4" :x-gap="12" :y-gap="12" item-responsive responsive="screen" style="margin-bottom: 16px">
-            <n-gi span="2 m:1"><n-card size="small"><n-statistic label="最佳速度" :value="bestStats.bestCpm"><template #suffix>CPM</template></n-statistic></n-card></n-gi>
+            <n-gi span="2 m:1"><n-card size="small"><n-statistic label="最佳速度" :value="langView === 'en' ? bestStats.bestWpm : bestStats.bestCpm"><template #suffix>{{ langView === 'en' ? 'WPM' : 'CPM' }}</template></n-statistic></n-card></n-gi>
             <n-gi span="2 m:1"><n-card size="small"><n-statistic label="最佳准确率" :value="bestStats.bestAcc"><template #suffix>%</template></n-statistic></n-card></n-gi>
             <n-gi span="2 m:1"><n-card size="small"><n-statistic label="练习次数" :value="bestStats.total" /></n-card></n-gi>
             <n-gi span="2 m:1"><n-card size="small"><n-statistic label="游戏局数" :value="bestStats.games" /></n-card></n-gi>
