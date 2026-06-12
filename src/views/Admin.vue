@@ -124,12 +124,43 @@ const textForm = ref({ id: null, title: '', content: '', lang: 'zh', difficulty:
 // 教师仅见全站文稿与自己的文稿；超管全见
 const visibleTexts = computed(() => user.isSuper ? texts.value
   : texts.value.filter(t => t.is_global !== false || t.owner_id === user.user.id))
+const actualCategories = computed(() => [...new Set(texts.value.map(t => t.category).filter(Boolean))])
 const categoryOptions = computed(() => {
-  const set = new Set(texts.value.map(t => t.category).filter(Boolean))
+  const set = new Set(actualCategories.value)
   // 没有任何分类时给出常用预设，引导教师建立分类体系
   if (!set.size) ['课文', '单词', '数字符号', '专业术语'].forEach(c => set.add(c))
   return [...set].map(c => ({ label: c, value: c }))
 })
+
+// ---- 文稿表格筛选（分类多选 / 语言 / 难度 / 来源） ----
+const tFilter = ref({ cats: [], lang: null, diff: null, source: null })
+function sourceOf(t) {
+  if (t.source !== 'builtin') return 'student'
+  return teacherMap.value[t.owner_id]?.role === 'teacher' ? 'teacher' : 'builtin'
+}
+const tableTexts = computed(() => visibleTexts.value.filter(t => {
+  const f = tFilter.value
+  if (f.cats.length && !f.cats.includes(t.category || '__none__')) return false
+  if (f.lang && t.lang !== f.lang) return false
+  if (f.diff && t.difficulty !== f.diff) return false
+  if (f.source && sourceOf(t) !== f.source) return false
+  return true
+}))
+const catFilterOptions = computed(() => [
+  ...actualCategories.value.map(c => ({ label: c, value: c })),
+  { label: '未分类', value: '__none__' },
+])
+const DIFF_OPTS = [{ label: '初级', value: 1 }, { label: '中级', value: 2 }, { label: '高级', value: 3 }]
+const SOURCE_OPTS = [{ label: '内置', value: 'builtin' }, { label: '教师', value: 'teacher' }, { label: '学生', value: 'student' }]
+
+// ---- 任务发布的文稿选择：分类筛选 + 输入搜索 ----
+const taskTextCat = ref(null)
+const taskTextOptions = computed(() => visibleTexts.value
+  .filter(t => !taskTextCat.value || (taskTextCat.value === '__none__' ? !t.category : t.category === taskTextCat.value))
+  .map(t => ({
+    label: `${t.category ? `[${t.category}] ` : ''}${t.title}（${t.content.length}字 · ${LANGS.find(l => l.value === t.lang)?.label || ''}）`,
+    value: t.id,
+  })))
 function newText() {
   textForm.value = { id: null, title: '', content: '', lang: 'zh', difficulty: 1, category: '' }
   showText.value = true
@@ -399,10 +430,18 @@ const STATUS_TAG = { draft: ['草稿', 'default'], open: ['进行中', 'success'
             <n-button type="primary" @click="newText">＋ 添加文稿</n-button>
             <span style="opacity:.55;font-size:13px">{{ user.isSuper ? '可通过"全站使用"开关控制教师文稿的可见范围' : '你添加的文稿仅对你的班级可见' }}</span>
           </n-space>
+          <n-space style="margin-bottom: 12px" align="center">
+            <n-select v-model:value="tFilter.cats" multiple clearable placeholder="分类（可多选）"
+              :options="catFilterOptions" style="min-width: 200px" size="small" />
+            <n-select v-model:value="tFilter.lang" clearable placeholder="语言" :options="LANGS" style="width: 120px" size="small" />
+            <n-select v-model:value="tFilter.diff" clearable placeholder="难度" :options="DIFF_OPTS" style="width: 110px" size="small" />
+            <n-select v-model:value="tFilter.source" clearable placeholder="来源" :options="SOURCE_OPTS" style="width: 110px" size="small" />
+            <span style="opacity:.55;font-size:13px">共 {{ tableTexts.length }} 篇</span>
+          </n-space>
           <n-table size="small" :single-line="false">
             <thead><tr><th>标题</th><th>分类</th><th>语言</th><th>难度</th><th>来源</th><th>字数</th><th v-if="user.isSuper">全站使用</th><th>操作</th></tr></thead>
             <tbody>
-              <tr v-for="t in visibleTexts" :key="t.id">
+              <tr v-for="t in tableTexts" :key="t.id">
                 <td>{{ t.title }}</td>
                 <td><n-tag v-if="t.category" size="tiny" round>{{ t.category }}</n-tag><span v-else style="opacity:.4">—</span></td>
                 <td>{{ LANGS.find(l => l.value === t.lang)?.label }}</td>
@@ -472,8 +511,11 @@ const STATUS_TAG = { draft: ['草稿', 'default'], open: ['进行中', 'success'
             <n-space vertical v-if="taskForm">
               <n-input v-model:value="taskForm.title" placeholder="任务标题，如：第3周打字测验" />
               <n-input v-model:value="taskForm.note" placeholder="任务说明/备注（可选）" />
-              <n-select v-model:value="taskForm.text_id" placeholder="选择练习文稿"
-                :options="texts.map(t => ({ label: `${t.title}（${t.content.length}字）`, value: t.id }))" />
+              <n-space :wrap="false">
+                <n-select v-model:value="taskTextCat" clearable placeholder="按分类筛选" :options="catFilterOptions" style="width: 150px" />
+                <n-select v-model:value="taskForm.text_id" filterable clearable placeholder="选择练习文稿（可输入标题搜索）"
+                  :options="taskTextOptions" style="min-width: 320px" />
+              </n-space>
               <n-space align="center">
                 <span>起止时间</span>
                 <n-date-picker v-model:value="taskForm.range" type="datetimerange" />
