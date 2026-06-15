@@ -211,10 +211,33 @@ async function removeTeacher(t) {
   loadAll()
 }
 
+// ---- 游戏配置：太空射击关卡参数 + 赛跑文稿指定 ----
+const DEFAULT_GAME_CFG = {
+  spaceType: { baseSpeed: 0.35, speedIncrement: 0.12, spawnBase: 2000, levelScoreStep: 100, maxLives: 3 },
+  racePinnedTextId: null,
+}
+const gameCfg = ref({ ...DEFAULT_GAME_CFG, spaceType: { ...DEFAULT_GAME_CFG.spaceType } })
+async function loadGameConfig() {
+  const { data } = await supabase.from('app_config').select('value').eq('key', 'game_config').maybeSingle()
+  if (data?.value) {
+    gameCfg.value = { ...DEFAULT_GAME_CFG, ...data.value, spaceType: { ...DEFAULT_GAME_CFG.spaceType, ...(data.value.spaceType || {}) } }
+  }
+}
+async function saveGameConfig() {
+  const { error } = await supabase.from('app_config').upsert({ key: 'game_config', value: gameCfg.value, updated_at: new Date().toISOString() })
+  if (error) return message.error('保存失败：' + error.message)
+  message.success('游戏配置已保存，下次开始游戏时生效')
+}
+const raceTextOptions = computed(() => [
+  { label: '随机（按语言）', value: null },
+  ...texts.value.filter(t => t.source === 'builtin').map(t => ({ label: `${t.title}（${t.lang}）`, value: t.id })),
+])
+
 // ---- 词库配置：中文词语（app_config）+ 英文单词带释义（words 表） ----
 const gameWordsZh = ref('')
 const wordPairs = ref('')   // 每行：单词,中文释义
 async function loadGameWordsConfig() {
+  await loadGameConfig()
   const { data } = await supabase.from('app_config').select('value').eq('key', 'game_words').maybeSingle()
   gameWordsZh.value = (data?.value?.zh?.length ? data.value.zh : GAME_WORDS.zh).join('\n')
   try {
@@ -578,6 +601,54 @@ const STATUS_TAG = { draft: ['草稿', 'default'], open: ['进行中', 'success'
                 <p style="opacity:.65;font-size:13px;margin-top:4px">供游戏的中文模式使用（太空射击 / 消消乐 / 打地鼠等），每行一个词语。保存后对全体学生生效。</p>
                 <n-input v-model:value="gameWordsZh" type="textarea" :rows="14" placeholder="每行一个词语" />
                 <n-button type="primary" style="margin-top: 10px" @click="saveZhWords">保存中文词库</n-button>
+              </n-tab-pane>
+            </n-tabs>
+          </n-card>
+        </n-tab-pane>
+
+        <!-- 游戏配置 -->
+        <n-tab-pane name="gameconfig" tab="🎮 游戏配置">
+          <n-card size="small">
+            <n-tabs type="segment" animated>
+              <n-tab-pane name="space" tab="🚀 太空射击关卡">
+                <p style="opacity:.65;font-size:13px;margin-top:4px">
+                  调整敌机的速度、生成频率与升关阈值，保存后下次学生开始游戏时生效。
+                </p>
+                <n-space vertical :size="12" style="max-width:420px">
+                  <n-space align="center" :size="12">
+                    <span style="width:130px;font-size:13px">初始速度</span>
+                    <n-input-number v-model:value="gameCfg.spaceType.baseSpeed" :min="0.1" :max="2" :step="0.05" :precision="2" style="width:140px" size="small" />
+                    <span style="font-size:12px;opacity:.55">越大越快</span>
+                  </n-space>
+                  <n-space align="center" :size="12">
+                    <span style="width:130px;font-size:13px">每关速度增量</span>
+                    <n-input-number v-model:value="gameCfg.spaceType.speedIncrement" :min="0" :max="1" :step="0.01" :precision="2" style="width:140px" size="small" />
+                    <span style="font-size:12px;opacity:.55">每升一关增加的速度</span>
+                  </n-space>
+                  <n-space align="center" :size="12">
+                    <span style="width:130px;font-size:13px">生成间隔（毫秒）</span>
+                    <n-input-number v-model:value="gameCfg.spaceType.spawnBase" :min="500" :max="5000" :step="100" style="width:140px" size="small" />
+                    <span style="font-size:12px;opacity:.55">越小越密集</span>
+                  </n-space>
+                  <n-space align="center" :size="12">
+                    <span style="width:130px;font-size:13px">升关所需积分</span>
+                    <n-input-number v-model:value="gameCfg.spaceType.levelScoreStep" :min="20" :max="500" :step="10" style="width:140px" size="small" />
+                  </n-space>
+                  <n-space align="center" :size="12">
+                    <span style="width:130px;font-size:13px">初始生命值</span>
+                    <n-input-number v-model:value="gameCfg.spaceType.maxLives" :min="1" :max="10" style="width:140px" size="small" />
+                  </n-space>
+                  <n-button type="primary" @click="saveGameConfig">保存太空射击配置</n-button>
+                </n-space>
+              </n-tab-pane>
+              <n-tab-pane name="race" tab="🏃 赛跑竞速文稿">
+                <p style="opacity:.65;font-size:13px;margin-top:4px">
+                  指定赛跑游戏使用的练习文稿。选「随机」时由系统按语言随机抽取；选定某篇文稿后，所有玩家（包括多人房间）都将使用该文稿。
+                </p>
+                <n-space vertical :size="12" style="max-width:420px">
+                  <n-select v-model:value="gameCfg.racePinnedTextId" :options="raceTextOptions" placeholder="选择指定文稿（默认随机）" clearable />
+                  <n-button type="primary" @click="saveGameConfig">保存赛跑配置</n-button>
+                </n-space>
               </n-tab-pane>
             </n-tabs>
           </n-card>

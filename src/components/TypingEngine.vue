@@ -202,7 +202,18 @@ const view = computed(() => {
 })
 watch(pos, () => nextTick(() => {
   const cur = textBox.value?.querySelector('.ch.cur')
-  cur?.scrollIntoView({ block: 'nearest' })
+  const box = textBox.value
+  if (!cur || !box) return
+  const boxRect = box.getBoundingClientRect()
+  const curRect = cur.getBoundingClientRect()
+  const relTop = curRect.top - boxRect.top + box.scrollTop
+  const relBottom = relTop + curRect.height
+  const padding = 48
+  if (relBottom > box.scrollTop + box.clientHeight - padding) {
+    box.scrollTop = relBottom - box.clientHeight + padding
+  } else if (relTop < box.scrollTop + padding) {
+    box.scrollTop = relTop - padding
+  }
 }))
 const remainSec = computed(() => props.durationSec > 0 ? Math.max(0, props.durationSec - elapsed.value) : null)
 const live = computed(() => stats())

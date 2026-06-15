@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import {
   NCard, NTabs, NTabPane, NButton, NTag, NSelect, NInput, NInputNumber, NModal, NSpace, NUpload,
   NRadioGroup, NRadioButton, useMessage, NEmpty,
@@ -79,20 +79,32 @@ function startText(t) {
 }
 
 // ---- 单词练习（打完单词显示中文释义） ----
+const wordLang = ref('en')         // en | zh
 const wordCount = ref(20)
-const wordPreview = ref([])
-async function loadWordPreview() {
+const wordCustomCount = ref(20)
+const wordStats = ref({ enTotal: 0, zhTotal: 0 })
+async function loadWordStats() {
   const wb = await getGameWords()
-  wordPreview.value = wb.en.slice(0, 12)
+  wordStats.value = { enTotal: wb.en.length, zhTotal: wb.zh.length }
 }
-onMounted(loadWordPreview)
+onMounted(loadWordStats)
 async function startWords() {
   const wb = await getGameWords()
-  const list = [...wb.en].sort(() => Math.random() - 0.5).slice(0, wordCount.value === 0 ? wb.en.length : wordCount.value)
-  current.value = {
-    title: `单词练习（${list.length} 词）`, id: null,
-    content: list.join(' '), meanings: wb.enMap,
-    isWords: true, lang: 'en',
+  const count = wordCount.value === -1 ? wordCustomCount.value : wordCount.value
+  if (wordLang.value === 'zh') {
+    const list = [...wb.zh].sort(() => Math.random() - 0.5).slice(0, count === 0 ? wb.zh.length : count)
+    current.value = {
+      title: `中文词语练习（${list.length} 词）`, id: null,
+      content: list.join(' '), meanings: null,
+      isWords: true, lang: 'zh',
+    }
+  } else {
+    const list = [...wb.en].sort(() => Math.random() - 0.5).slice(0, count === 0 ? wb.en.length : count)
+    current.value = {
+      title: `英文单词练习（${list.length} 词）`, id: null,
+      content: list.join(' '), meanings: wb.enMap,
+      isWords: true, lang: 'en',
+    }
   }
   phase.value = 'typing'
 }
@@ -232,24 +244,43 @@ const DIFF = ['', '初级', '中级', '高级']
         </n-tab-pane>
 
         <n-tab-pane name="words" tab="🔤 单词练习">
-          <n-space vertical :size="14">
-            <n-space align="center">
-              <span style="font-weight:600">单词数量：</span>
-              <n-radio-group v-model:value="wordCount" size="small">
-                <n-radio-button :value="20">20 词</n-radio-button>
-                <n-radio-button :value="40">40 词</n-radio-button>
-                <n-radio-button :value="0">全部</n-radio-button>
-              </n-radio-group>
-              <n-button type="primary" @click="startWords">开始单词练习 🔤</n-button>
-            </n-space>
-            <p style="opacity:.65;font-size:13px;margin:0">
-              每打对一个单词，会立即浮现它的中文释义，边练打字边背单词。词库由老师在后台维护（支持 Excel 导入）。
-            </p>
-            <n-space :size="6">
-              <n-tag v-for="w in wordPreview" :key="w" round size="small">{{ w }}</n-tag>
-              <n-tag round size="small" type="info">…</n-tag>
-            </n-space>
-          </n-space>
+          <div class="word-practice-layout">
+            <!-- 左：语言选择卡片 -->
+            <div class="lang-cards">
+              <div class="lang-card" :class="{ active: wordLang === 'en' }" @click="wordLang = 'en'">
+                <div class="lc-icon">🔤</div>
+                <div class="lc-title">英文单词</div>
+                <div class="lc-desc">打对即显示中文释义</div>
+                <div class="lc-count">{{ wordStats.enTotal }} 词</div>
+              </div>
+              <div class="lang-card" :class="{ active: wordLang === 'zh' }" @click="wordLang = 'zh'">
+                <div class="lc-icon">🀄</div>
+                <div class="lc-title">中文词语</div>
+                <div class="lc-desc">拼音输入法直接上屏</div>
+                <div class="lc-count">{{ wordStats.zhTotal }} 词</div>
+              </div>
+            </div>
+
+            <!-- 右：数量 + 开始 -->
+            <div class="word-config-panel">
+              <div class="wcp-label">练习数量</div>
+              <div class="count-grid">
+                <div v-for="opt in [{v:10,l:'10 词'},{v:20,l:'20 词'},{v:40,l:'40 词'},{v:0,l:'全部'}]"
+                  :key="opt.v" class="count-chip" :class="{ active: wordCount === opt.v }"
+                  @click="wordCount = opt.v">{{ opt.l }}</div>
+                <div class="count-chip" :class="{ active: wordCount === -1 }" @click="wordCount = -1">自定义</div>
+              </div>
+              <n-input-number v-if="wordCount === -1" v-model:value="wordCustomCount"
+                :min="1" :max="500" style="width:130px;margin-top:10px" size="small">
+                <template #suffix>词</template>
+              </n-input-number>
+              <n-button type="primary" size="large" class="start-btn" @click="startWords">
+                开始练习
+              </n-button>
+              <p class="wcp-hint" v-if="wordLang === 'en'">打对单词后立即浮现中文释义</p>
+              <p class="wcp-hint" v-else>词库由老师在后台「词库管理」中配置</p>
+            </div>
+          </div>
         </n-tab-pane>
 
         <n-tab-pane name="text" tab="📄 文稿练习">
@@ -346,4 +377,29 @@ const DIFF = ['', '初级', '中级', '高级']
 .text-card { cursor: pointer; }
 .tc-title { font-weight: 700; margin-bottom: 6px; }
 .tc-preview { font-size: 12px; opacity: .6; margin-bottom: 8px; min-height: 32px; }
+.word-practice-layout { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; }
+.lang-cards { display: flex; flex-direction: column; gap: 12px; min-width: 160px; }
+.lang-card { padding: 16px 20px; border-radius: 14px; border: 2px solid rgba(127,127,127,.15);
+  background: rgba(127,127,127,.05); cursor: pointer; transition: all .18s; }
+.lang-card:hover { border-color: var(--kp-primary); background: rgba(79,70,229,.05); }
+.lang-card.active { border-color: var(--kp-primary); background: rgba(79,70,229,.08);
+  box-shadow: 0 2px 12px rgba(79,70,229,.15); }
+.lc-icon { font-size: 26px; margin-bottom: 6px; }
+.lc-title { font-weight: 700; font-size: 15px; margin-bottom: 3px; }
+.lc-desc { font-size: 12px; opacity: .55; margin-bottom: 8px; }
+.lc-count { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 12px;
+  font-weight: 600; background: var(--kp-primary, #4F46E5); color: #fff; }
+.lang-card.active .lc-count { background: var(--kp-primary, #4F46E5); }
+
+.word-config-panel { flex: 1; min-width: 260px; }
+.wcp-label { font-weight: 600; font-size: 14px; margin-bottom: 10px; opacity: .75; }
+.count-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.count-chip { padding: 6px 16px; border-radius: 20px; border: 2px solid rgba(127,127,127,.2);
+  font-size: 14px; font-weight: 600; cursor: pointer; transition: all .15s;
+  background: rgba(127,127,127,.06); user-select: none; }
+.count-chip:hover { border-color: var(--kp-primary); color: var(--kp-primary); }
+.count-chip.active { border-color: var(--kp-primary); background: var(--kp-primary);
+  color: #fff; box-shadow: 0 2px 8px rgba(79,70,229,.3); }
+.start-btn { margin-top: 20px; width: 100%; font-size: 16px; height: 44px; }
+.wcp-hint { font-size: 12px; opacity: .5; margin: 8px 0 0; }
 </style>

@@ -4,6 +4,7 @@ import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { NButton, NRadioGroup, NRadioButton, NSpace, useMessage } from 'naive-ui'
 import { GAME_WORDS } from '../../data/texts'
 import { getGameWords } from '../../lib/gameWords'
+import { supabase, dbAvailable } from '../../lib/supabase'
 import { playFx } from '../../lib/sound'
 import { saveLog } from '../../lib/records'
 import GameShell from './GameShell.vue'
@@ -26,6 +27,16 @@ const arena = ref(null)
 const WORDS = ref(GAME_WORDS)
 const composing = ref(false)
 const effects = ref([])   // 射击特效 {id, type: laser|boom, ...}
+
+const cfg = ref({ baseSpeed: 0.35, speedIncrement: 0.12, spawnBase: 2000, levelScoreStep: 100, maxLives: 3 })
+async function loadConfig() {
+  try {
+    if (!(await dbAvailable())) return
+    const { data } = await supabase.from('app_config').select('value').eq('key', 'game_config').maybeSingle()
+    if (data?.value?.spaceType) Object.assign(cfg.value, data.value.spaceType)
+  } catch { /* 使用默认值 */ }
+}
+onMounted(loadConfig)
 
 function addEffect(fx, ttl) {
   const id = idSeq++
@@ -52,24 +63,25 @@ function spawn() {
     id: idSeq++, word, typed: 0,
     x: 40 + Math.random() * (W.value - 120),
     y: -20,
-    speed: 0.35 + level.value * 0.12 + Math.random() * 0.2,
+    speed: cfg.value.baseSpeed + level.value * cfg.value.speedIncrement + Math.random() * 0.2,
   })
 }
 
 async function start() {
+  await loadConfig()
   WORDS.value = await getGameWords()
   // 画布自适应容器宽度（开始时 arena 未渲染，量外层 shell）
   W.value = Math.min(1200, Math.max(700, (document.querySelector('.shell')?.clientWidth || 940) - 8))
   H.value = Math.min(640, Math.max(480, Math.round(window.innerHeight * 0.62)))
   state.value = 'playing'
   effects.value = []
-  score.value = 0; lives.value = 3; level.value = 1
+  score.value = 0; lives.value = cfg.value.maxLives; level.value = 1
   enemies.value = []; input.value = ''; hits.value = 0; misses.value = 0
   startedAt.value = Date.now()
   spawnTimer = setInterval(() => {
     spawn()
-    if (score.value > level.value * 100) level.value++
-  }, Math.max(900, 2000 - level.value * 100))
+    if (score.value > level.value * cfg.value.levelScoreStep) level.value++
+  }, Math.max(500, cfg.value.spawnBase - level.value * 100))
   loop()
   setTimeout(() => document.getElementById('space-input')?.focus(), 50)
 }

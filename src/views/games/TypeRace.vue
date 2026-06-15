@@ -1,8 +1,8 @@
 <script setup>
 // 🏃 赛跑竞速：打字速度控制奔跑；多人实时对战（Supabase Realtime 房间）或单人挑战电脑
-import { ref, computed, onBeforeUnmount } from 'vue'
-import { NButton, NSpace, NInput, NCard, NTag, useMessage, NRadioGroup, NRadioButton } from 'naive-ui'
-import { supabase } from '../../lib/supabase'
+import { ref, computed, onBeforeUnmount, onMounted } from 'vue'
+import { NButton, NSpace, NInput, NCard, NTag, useMessage, NRadioGroup, NRadioButton, NSelect } from 'naive-ui'
+import { supabase, dbAvailable } from '../../lib/supabase'
 import { useUserStore } from '../../stores/user'
 import { LOCAL_TEXTS } from '../../data/texts'
 import { confetti } from '../../lib/confetti'
@@ -29,13 +29,51 @@ const finishOrder = ref([])
 const isHost = ref(false)
 const textChoice = ref('zh')
 
+// 文稿选择：null = 随机，'id' = 管理员指定或用户自选
+const availableTexts = ref([])
+const selectedTextId = ref(null)   // null 表示随机
+const pinnedTextId = ref(null)     // 管理员指定
+const textSelectMode = ref('random')  // random | pick
+
+const textOptions = computed(() => [
+  { label: '随机（按语言）', value: null },
+  ...availableTexts.value.map(t => ({ label: `${t.title}（${t.lang}）`, value: t.id })),
+])
+
+onMounted(async () => {
+  try {
+    if (await dbAvailable()) {
+      const [{ data: cfg }, { data: txts }] = await Promise.all([
+        supabase.from('app_config').select('value').eq('key', 'game_config').maybeSingle(),
+        supabase.from('texts').select('id, title, content, lang').eq('source', 'builtin').order('title'),
+      ])
+      if (cfg?.value?.racePinnedTextId) {
+        pinnedTextId.value = cfg.value.racePinnedTextId
+        selectedTextId.value = cfg.value.racePinnedTextId
+        textSelectMode.value = 'pick'
+      }
+      if (txts?.length) availableTexts.value = txts
+    }
+  } catch { /* 使用本地文稿 */ }
+})
+
 let channel = null
 let botTimer = null
 let cdTimer = null
 
 function pickText() {
-  const pool = LOCAL_TEXTS.filter(t => t.lang === textChoice.value)
-  return pool[Math.floor(Math.random() * pool.length)].content
+  // 优先用选中文稿
+  const chosenId = selectedTextId.value
+  if (chosenId) {
+    const t = availableTexts.value.find(x => x.id === chosenId)
+    if (t) return t.content
+  }
+  // 随机按语言
+  const pool = availableTexts.value.length
+    ? availableTexts.value.filter(t => t.lang === textChoice.value)
+    : LOCAL_TEXTS.filter(t => t.lang === textChoice.value)
+  const src = pool.length ? pool : (availableTexts.value.length ? availableTexts.value : LOCAL_TEXTS)
+  return src[Math.floor(Math.random() * src.length)].content
 }
 
 // ---------- 单人模式（挑战电脑） ----------
@@ -176,10 +214,21 @@ function restart() {
   <GameShell title="🏃 赛跑竞速 TypeRace" :score="score" :state="state === 'lobby' || state === 'countdown' || state === 'racing' ? 'playing' : state" @restart="restart">
     <template #setup>
       <n-space vertical align="center" :size="18">
-        <n-radio-group v-model:value="textChoice">
-          <n-radio-button value="zh">中文文稿</n-radio-button>
-          <n-radio-button value="en">英文文稿</n-radio-button>
-        </n-radio-group>
+        <!-- 文稿选择 -->
+        <n-space vertical align="center" :size="8">
+          <n-radio-group v-model:value="textSelectMode" size="small">
+            <n-radio-button value="random">随机文稿</n-radio-button>
+            <n-radio-button value="pick">指定文稿</n-radio-button>
+          </n-radio-group>
+          <n-radio-group v-if="textSelectMode === 'random'" v-model:value="textChoice" size="small">
+            <n-radio-button value="zh">中文</n-radio-button>
+            <n-radio-button value="en">英文</n-radio-button>
+          </n-radio-group>
+          <n-select v-if="textSelectMode === 'pick'" v-model:value="selectedTextId"
+            :options="textOptions" style="width:320px" placeholder="选择文稿"
+            :disabled="!!pinnedTextId" />
+          <span v-if="pinnedTextId" style="font-size:12px;opacity:.55">📌 老师已指定文稿</span>
+        </n-space>
         <n-space>
           <n-button type="primary" size="large" @click="startSolo">🤖 单人挑战电脑</n-button>
           <n-button type="info" size="large" @click="createRoom">🏠 创建房间</n-button>
