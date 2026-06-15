@@ -244,42 +244,47 @@ const DIFF = ['', '初级', '中级', '高级']
         </n-tab-pane>
 
         <n-tab-pane name="words" tab="🔤 单词练习">
-          <div class="word-practice-layout">
-            <!-- 左：语言选择卡片 -->
-            <div class="lang-cards">
+          <div class="word-practice-wrap">
+            <!-- 语言选择 -->
+            <div class="lang-row">
               <div class="lang-card" :class="{ active: wordLang === 'en' }" @click="wordLang = 'en'">
-                <div class="lc-icon">🔤</div>
-                <div class="lc-title">英文单词</div>
-                <div class="lc-desc">打对即显示中文释义</div>
-                <div class="lc-count">{{ wordStats.enTotal }} 词</div>
+                <span class="lc-icon">🔤</span>
+                <div class="lc-body">
+                  <div class="lc-title">英文单词</div>
+                  <div class="lc-desc">打对立即显示中文释义</div>
+                </div>
+                <span class="lc-badge">{{ wordStats.enTotal }} 词</span>
               </div>
               <div class="lang-card" :class="{ active: wordLang === 'zh' }" @click="wordLang = 'zh'">
-                <div class="lc-icon">🀄</div>
-                <div class="lc-title">中文词语</div>
-                <div class="lc-desc">拼音输入法直接上屏</div>
-                <div class="lc-count">{{ wordStats.zhTotal }} 词</div>
+                <span class="lc-icon">🀄</span>
+                <div class="lc-body">
+                  <div class="lc-title">中文词语</div>
+                  <div class="lc-desc">拼音输入法直接上屏</div>
+                </div>
+                <span class="lc-badge">{{ wordStats.zhTotal }} 词</span>
               </div>
             </div>
 
-            <!-- 右：数量 + 开始 -->
-            <div class="word-config-panel">
-              <div class="wcp-label">练习数量</div>
-              <div class="count-grid">
-                <div v-for="opt in [{v:10,l:'10 词'},{v:20,l:'20 词'},{v:40,l:'40 词'},{v:0,l:'全部'}]"
+            <!-- 数量 + 开始 -->
+            <div class="count-row">
+              <span class="count-label">练习数量</span>
+              <div class="count-chips">
+                <div v-for="opt in [{v:10,l:'10'},{v:20,l:'20'},{v:40,l:'40'},{v:0,l:'全部'}]"
                   :key="opt.v" class="count-chip" :class="{ active: wordCount === opt.v }"
                   @click="wordCount = opt.v">{{ opt.l }}</div>
                 <div class="count-chip" :class="{ active: wordCount === -1 }" @click="wordCount = -1">自定义</div>
+                <n-input-number v-if="wordCount === -1" v-model:value="wordCustomCount"
+                  :min="1" :max="500" style="width:110px" size="small">
+                  <template #suffix>词</template>
+                </n-input-number>
               </div>
-              <n-input-number v-if="wordCount === -1" v-model:value="wordCustomCount"
-                :min="1" :max="500" style="width:130px;margin-top:10px" size="small">
-                <template #suffix>词</template>
-              </n-input-number>
-              <n-button type="primary" size="large" class="start-btn" @click="startWords">
-                开始练习
+              <n-button type="primary" size="medium" @click="startWords" style="flex-shrink:0">
+                开始练习 →
               </n-button>
-              <p class="wcp-hint" v-if="wordLang === 'en'">打对单词后立即浮现中文释义</p>
-              <p class="wcp-hint" v-else>词库由老师在后台「词库管理」中配置</p>
             </div>
+            <p class="word-hint">
+              {{ wordLang === 'en' ? '每打对一个单词，立即浮现中文释义，边打字边记忆。' : '词库由老师在后台「词库管理」中配置，支持批量导入。' }}
+            </p>
           </div>
         </n-tab-pane>
 
@@ -377,29 +382,33 @@ const DIFF = ['', '初级', '中级', '高级']
 .text-card { cursor: pointer; }
 .tc-title { font-weight: 700; margin-bottom: 6px; }
 .tc-preview { font-size: 12px; opacity: .6; margin-bottom: 8px; min-height: 32px; }
-.word-practice-layout { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; }
-.lang-cards { display: flex; flex-direction: column; gap: 12px; min-width: 160px; }
-.lang-card { padding: 16px 20px; border-radius: 14px; border: 2px solid rgba(127,127,127,.15);
-  background: rgba(127,127,127,.05); cursor: pointer; transition: all .18s; }
-.lang-card:hover { border-color: var(--kp-primary); background: rgba(79,70,229,.05); }
-.lang-card.active { border-color: var(--kp-primary); background: rgba(79,70,229,.08);
-  box-shadow: 0 2px 12px rgba(79,70,229,.15); }
-.lc-icon { font-size: 26px; margin-bottom: 6px; }
-.lc-title { font-weight: 700; font-size: 15px; margin-bottom: 3px; }
-.lc-desc { font-size: 12px; opacity: .55; margin-bottom: 8px; }
-.lc-count { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 12px;
-  font-weight: 600; background: var(--kp-primary, #4F46E5); color: #fff; }
-.lang-card.active .lc-count { background: var(--kp-primary, #4F46E5); }
+.word-practice-wrap { display: flex; flex-direction: column; gap: 14px; }
+.lang-row { display: flex; gap: 12px; }
+.lang-card { flex: 1; display: flex; align-items: center; gap: 12px; padding: 14px 18px;
+  border-radius: 12px; border: 2px solid rgba(127,127,127,.15);
+  background: rgba(127,127,127,.04); cursor: pointer; transition: all .18s; }
+.lang-card:hover { border-color: var(--kp-primary); background: rgba(79,70,229,.04); }
+.lang-card.active { border-color: var(--kp-primary); background: rgba(79,70,229,.07);
+  box-shadow: 0 2px 14px rgba(79,70,229,.13); }
+.lc-icon { font-size: 28px; flex-shrink: 0; }
+.lc-body { flex: 1; }
+.lc-title { font-weight: 700; font-size: 14px; }
+.lc-desc { font-size: 12px; opacity: .5; margin-top: 2px; }
+.lc-badge { flex-shrink: 0; padding: 3px 10px; border-radius: 20px; font-size: 12px;
+  font-weight: 600; background: rgba(127,127,127,.12); color: inherit;
+  transition: background .18s, color .18s; }
+.lang-card.active .lc-badge { background: var(--kp-primary); color: #fff; }
 
-.word-config-panel { flex: 1; min-width: 260px; }
-.wcp-label { font-weight: 600; font-size: 14px; margin-bottom: 10px; opacity: .75; }
-.count-grid { display: flex; flex-wrap: wrap; gap: 8px; }
-.count-chip { padding: 6px 16px; border-radius: 20px; border: 2px solid rgba(127,127,127,.2);
-  font-size: 14px; font-weight: 600; cursor: pointer; transition: all .15s;
-  background: rgba(127,127,127,.06); user-select: none; }
+.count-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 12px 16px; border-radius: 10px; background: rgba(127,127,127,.05); }
+.count-label { font-size: 13px; font-weight: 600; opacity: .65; flex-shrink: 0; }
+.count-chips { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; }
+.count-chip { padding: 5px 14px; border-radius: 20px; border: 1.5px solid rgba(127,127,127,.2);
+  font-size: 13px; font-weight: 600; cursor: pointer; transition: all .15s;
+  background: #fff; user-select: none; }
+.dark .count-chip { background: rgba(255,255,255,.06); }
 .count-chip:hover { border-color: var(--kp-primary); color: var(--kp-primary); }
 .count-chip.active { border-color: var(--kp-primary); background: var(--kp-primary);
-  color: #fff; box-shadow: 0 2px 8px rgba(79,70,229,.3); }
-.start-btn { margin-top: 20px; width: 100%; font-size: 16px; height: 44px; }
-.wcp-hint { font-size: 12px; opacity: .5; margin: 8px 0 0; }
+  color: #fff; box-shadow: 0 2px 6px rgba(79,70,229,.25); }
+.word-hint { font-size: 12px; opacity: .45; margin: 0; }
 </style>
