@@ -308,10 +308,28 @@ const showTask = ref(false)
 const taskForm = ref(null)
 function newTask() {
   taskForm.value = {
+    id: null,
     title: '', note: '', text_id: null,
     range: [Date.now(), Date.now() + 7 * 86400000],
     duration_min: 5, allow_retry: true, score_rule: 'best', status: 'open',
     class_ids: [], excluded: [],
+  }
+  showTask.value = true
+}
+async function editTask(t) {
+  const { data: ts } = await supabase.from('task_students').select('student_id').eq('task_id', t.id)
+  const stuIds = new Set((ts || []).map(r => r.student_id))
+  const stuInTask = students.value.filter(s => stuIds.has(s.id))
+  const class_ids = [...new Set(stuInTask.map(s => s.class_id))]
+  const allStuInClasses = students.value.filter(s => class_ids.includes(s.class_id))
+  const excluded = allStuInClasses.filter(s => !stuIds.has(s.id)).map(s => s.id)
+  taskForm.value = {
+    id: t.id,
+    title: t.title, note: t.note || '', text_id: t.text_id,
+    range: [new Date(t.start_at).getTime(), new Date(t.deadline).getTime()],
+    duration_min: Math.round(t.duration_sec / 60),
+    allow_retry: t.allow_retry, score_rule: t.score_rule, status: t.status,
+    class_ids, excluded,
   }
   showTask.value = true
 }
@@ -321,17 +339,27 @@ const taskFormStudents = computed(() => taskForm.value
 async function saveTask() {
   const f = taskForm.value
   if (!f.title || !f.text_id || !f.class_ids.length) return message.warning('请填写标题、选择文稿和班级')
-  const { data: task, error } = await supabase.from('tasks').insert({
+  const fields = {
     title: f.title, note: f.note, text_id: f.text_id, teacher_id: user.user.id,
     start_at: new Date(f.range[0]).toISOString(), deadline: new Date(f.range[1]).toISOString(),
     duration_sec: f.duration_min * 60, allow_retry: f.allow_retry, score_rule: f.score_rule, status: f.status,
-  }).select().single()
-  if (error) return message.error(error.message)
+  }
+  let taskId
+  if (f.id) {
+    const { error } = await supabase.from('tasks').update(fields).eq('id', f.id)
+    if (error) return message.error(error.message)
+    taskId = f.id
+    await supabase.from('task_students').delete().eq('task_id', taskId)
+  } else {
+    const { data: task, error } = await supabase.from('tasks').insert(fields).select().single()
+    if (error) return message.error(error.message)
+    taskId = task.id
+  }
   const targets = taskFormStudents.value.filter(s => !f.excluded.includes(s.id))
   if (targets.length) {
-    await supabase.from('task_students').insert(targets.map(s => ({ task_id: task.id, student_id: s.id })))
+    await supabase.from('task_students').insert(targets.map(s => ({ task_id: taskId, student_id: s.id })))
   }
-  message.success(`任务已发布，共指派 ${targets.length} 名学生`)
+  message.success(f.id ? `任务已更新，指派 ${targets.length} 名学生` : `任务已发布，共指派 ${targets.length} 名学生`)
   showTask.value = false
   loadAll()
 }
@@ -501,6 +529,7 @@ const STATUS_TAG = { draft: ['草稿', 'default'], open: ['进行中', 'success'
               <n-space size="small">
                 <n-button v-if="t.status === 'open'" size="tiny" type="info" @click="$router.push(`/admin/live/${t.id}`)">📺 实时大屏</n-button>
                 <n-button size="tiny" @click="viewTask = t">查看成绩</n-button>
+                <n-button size="tiny" @click="editTask(t)">编辑</n-button>
                 <n-button v-if="t.status === 'open'" size="tiny" @click="setTaskStatus(t, 'closed')">截止</n-button>
                 <n-button v-else-if="t.status === 'closed'" size="tiny" @click="setTaskStatus(t, 'archived')">归档</n-button>
                 <n-button v-if="t.status === 'draft'" size="tiny" type="primary" @click="setTaskStatus(t, 'open')">发布</n-button>
@@ -529,8 +558,8 @@ const STATUS_TAG = { draft: ['草稿', 'default'], open: ['进行中', 'success'
             </n-table>
           </n-modal>
 
-          <!-- 新建任务 -->
-          <n-modal v-model:show="showTask" preset="card" title="发布新任务" style="max-width: 620px">
+          <!-- 新建/编辑任务 -->
+          <n-modal v-model:show="showTask" preset="card" :title="taskForm?.id ? '编辑任务' : '发布新任务'" style="max-width: 620px">
             <n-space vertical v-if="taskForm">
               <n-input v-model:value="taskForm.title" placeholder="任务标题，如：第3周打字测验" />
               <n-input v-model:value="taskForm.note" placeholder="任务说明/备注（可选）" />
@@ -573,7 +602,7 @@ const STATUS_TAG = { draft: ['草稿', 'default'], open: ['进行中', 'success'
                 <n-radio-button value="open">立即发布</n-radio-button>
                 <n-radio-button value="draft">存为草稿</n-radio-button>
               </n-radio-group>
-              <n-button type="primary" block @click="saveTask">确认发布</n-button>
+              <n-button type="primary" block @click="saveTask">{{ taskForm?.id ? '保存修改' : '确认发布' }}</n-button>
             </n-space>
           </n-modal>
         </n-tab-pane>

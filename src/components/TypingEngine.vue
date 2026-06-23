@@ -135,6 +135,7 @@ function onKeydown(e) {
       pos.value--
       const st = typedStates.value[pos.value]
       if (st === 'ok') correctTotal.value--
+      else if (st === 'err') errorsTotal.value--
       typedStates.value[pos.value] = undefined
       typedTotal.value = Math.max(0, typedTotal.value - 1)
       noteActivity()

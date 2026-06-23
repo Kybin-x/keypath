@@ -75,7 +75,7 @@ import { NCard as Card, NTag as Tag, NButton as Btn, NEmpty as Empty } from 'nai
 import { RouterLink } from 'vue-router'
 
 const TaskList = defineComponent({
-  props: ['list', 'bestFor', 'recsFor', 'remain', 'active'],
+  props: { list: Array, bestFor: Function, recsFor: Function, remain: Function, active: Boolean },
   setup(props) {
     return () => !props.list.length
       ? h(Empty, { description: '这里空空如也' })
