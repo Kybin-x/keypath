@@ -118,6 +118,39 @@ const stuClassFilter = ref(null)
 const filteredStudents = computed(() => stuClassFilter.value
   ? students.value.filter(s => s.class_id === stuClassFilter.value) : students.value)
 
+// ---- 学生批量操作 ----
+const stuSelected = ref(new Set())
+const allSelected = computed(() => filteredStudents.value.length > 0 && filteredStudents.value.every(s => stuSelected.value.has(s.id)))
+const someSelected = computed(() => !allSelected.value && filteredStudents.value.some(s => stuSelected.value.has(s.id)))
+function toggleAll() {
+  const next = new Set(stuSelected.value)
+  if (allSelected.value) filteredStudents.value.forEach(s => next.delete(s.id))
+  else filteredStudents.value.forEach(s => next.add(s.id))
+  stuSelected.value = next
+}
+function toggleStu(id) {
+  const next = new Set(stuSelected.value)
+  next.has(id) ? next.delete(id) : next.add(id)
+  stuSelected.value = next
+}
+async function bulkDeleteStudents() {
+  const ids = [...stuSelected.value]
+  if (!ids.length) return
+  await supabase.from('users').delete().in('id', ids)
+  stuSelected.value = new Set()
+  message.success(`已删除 ${ids.length} 名学生`)
+  loadAll()
+}
+async function deleteClass(classId) {
+  const ids = students.value.filter(s => s.class_id === classId).map(s => s.id)
+  if (ids.length) await supabase.from('users').delete().in('id', ids)
+  await supabase.from('classes').delete().eq('id', classId)
+  stuClassFilter.value = null
+  stuSelected.value = new Set()
+  message.success('班级及全部学生已删除')
+  loadAll()
+}
+
 // ---- 文稿管理（新增 / 编辑 / 分类 / 班级范围） ----
 const showText = ref(false)
 const textForm = ref({ id: null, title: '', content: '', lang: 'zh', difficulty: 1, category: '' })
@@ -456,12 +489,34 @@ const STATUS_TAG = { draft: ['草稿', 'default'], open: ['进行中', 'success'
             <n-button type="primary" style="margin-top: 10px" :loading="importing" @click="doImport">导入</n-button>
           </n-card>
           <n-card size="small" title="学生列表">
-            <n-select v-model:value="stuClassFilter" clearable placeholder="按班级筛选" style="width: 200px; margin-bottom: 10px"
-              :options="classes.map(c => ({ label: c.name, value: c.id }))" />
+            <n-space align="center" style="margin-bottom: 10px">
+              <n-select v-model:value="stuClassFilter" clearable placeholder="按班级筛选" style="width: 200px"
+                :options="classes.map(c => ({ label: c.name, value: c.id }))" />
+              <n-popconfirm v-if="stuClassFilter" @positive-click="deleteClass(stuClassFilter)">
+                <template #trigger><n-button size="small" type="error">🗑 删除整班</n-button></template>
+                确定删除「{{ classMap[stuClassFilter] }}」及该班所有学生？此操作不可撤销。
+              </n-popconfirm>
+              <template v-if="stuSelected.size > 0">
+                <n-tag type="warning">已选 {{ stuSelected.size }} 人</n-tag>
+                <n-popconfirm @positive-click="bulkDeleteStudents">
+                  <template #trigger><n-button size="small" type="error">批量删除</n-button></template>
+                  确定删除选中的 {{ stuSelected.size }} 名学生？所有成绩也会删除。
+                </n-popconfirm>
+                <n-button size="small" @click="stuSelected = new Set()">取消选择</n-button>
+              </template>
+            </n-space>
             <n-table size="small" :single-line="false">
-              <thead><tr><th>学号</th><th>姓名</th><th>班级</th><th>操作</th></tr></thead>
+              <thead>
+                <tr>
+                  <th style="width:36px">
+                    <n-checkbox :checked="allSelected" :indeterminate="someSelected" @update:checked="toggleAll" />
+                  </th>
+                  <th>学号</th><th>姓名</th><th>班级</th><th>操作</th>
+                </tr>
+              </thead>
               <tbody>
-                <tr v-for="s in filteredStudents" :key="s.id">
+                <tr v-for="s in filteredStudents" :key="s.id" :style="stuSelected.has(s.id) ? 'background:rgba(79,70,229,.06)' : ''">
+                  <td><n-checkbox :checked="stuSelected.has(s.id)" @update:checked="() => toggleStu(s.id)" /></td>
                   <td>{{ s.student_no }}</td><td>{{ s.name }}</td><td>{{ classMap[s.class_id] || '—' }}</td>
                   <td>
                     <n-space size="small">

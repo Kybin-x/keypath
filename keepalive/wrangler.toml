@@ -1,0 +1,14 @@
+name = "keypath-keepalive"
+main = "src/index.js"
+compatibility_date = "2026-08-01"
+
+# 每 2 天 UTC 03:00 触发一次（北京时间 11:00）。
+# Supabase 的暂停阈值是 7 天无活动，2 天的间隔留足了余量：
+# 即便连续两次触发失败，累计也才 6 天，仍不会被暂停。
+[triggers]
+crons = ["0 3 */2 * *"]
+
+[vars]
+SUPABASE_URL = "https://cvvomfuorizmbqtaeifb.supabase.co"
+# 这是 publishable key，本来就打包在前端里公开可见，放在这里不额外增加风险。
+SUPABASE_KEY = "sb_publishable_LXbfpfrMIhgtu0I3bp_NkA_A24QsWEB"

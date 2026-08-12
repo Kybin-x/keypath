@@ -205,16 +205,13 @@ watch(pos, () => nextTick(() => {
   const cur = textBox.value?.querySelector('.ch.cur')
   const box = textBox.value
   if (!cur || !box) return
-  const boxRect = box.getBoundingClientRect()
-  const curRect = cur.getBoundingClientRect()
-  const relTop = curRect.top - boxRect.top + box.scrollTop
-  const relBottom = relTop + curRect.height
-  const padding = 48
-  if (relBottom > box.scrollTop + box.clientHeight - padding) {
-    box.scrollTop = relBottom - box.clientHeight + padding
-  } else if (relTop < box.scrollTop + padding) {
-    box.scrollTop = relTop - padding
-  }
+  const boxTop = box.getBoundingClientRect().top
+  const boxBot = boxTop + box.clientHeight
+  const curTop = cur.getBoundingClientRect().top
+  const curBot = cur.getBoundingClientRect().bottom
+  const pad = 48
+  if (curBot > boxBot - pad) box.scrollTop += curBot - boxBot + pad
+  else if (curTop < boxTop + pad) box.scrollTop -= boxTop - curTop + pad
 }))
 const remainSec = computed(() => props.durationSec > 0 ? Math.max(0, props.durationSec - elapsed.value) : null)
 const live = computed(() => stats())
@@ -262,7 +259,7 @@ function fmtTime(s) { const m = Math.floor(s / 60); return `${m}:${String(Math.f
 .stat .val.time { color: var(--kp-primary, #4F46E5); }
 .stat .val.err { color: #ef4444; }
 .textarea-wrap { position: relative; padding: 24px 28px; border-radius: 12px; min-height: 130px;
-  max-height: 320px; overflow-y: auto; scroll-padding: 60px;
+  max-height: 420px; overflow-y: auto; scroll-padding: 60px;
   background: rgba(255,255,255,.78); border: 2px solid rgba(127,127,127,.15); cursor: text;
   word-break: break-all; white-space: pre-wrap; }
 .dark .textarea-wrap { background: rgba(0,0,0,.35); }
