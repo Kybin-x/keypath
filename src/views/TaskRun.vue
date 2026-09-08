@@ -21,6 +21,7 @@ const phase = ref('preview')   // preview | typing | result
 const result = ref(null)
 const unlocked = ref([])
 const lastRec = ref(null)
+const engine = ref(null)
 
 onMounted(async () => {
   try {
@@ -33,8 +34,34 @@ onMounted(async () => {
     const { data: recs } = await supabase.from('task_records').select('*').eq('task_id', route.params.id)
       .eq('student_id', user.user.id).order('submitted_at', { ascending: false }).limit(1)
     lastRec.value = recs?.[0] || null
+    subscribeTask()
   } finally { loading.value = false }
 })
+
+// ---- 订阅任务变更：教师修改时长/状态时学生端实时响应 ----
+let taskChannel = null
+function subscribeTask() {
+  taskChannel = supabase
+    .channel(`task-meta-${route.params.id}`)
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'tasks', filter: `id=eq.${route.params.id}` },
+      (payload) => {
+        if (!payload.new || !task.value) return
+        const next = payload.new
+        const durChanged = next.duration_sec !== task.value.duration_sec
+        const statusChanged = next.status !== task.value.status
+        // 先更新本地 task（TypingEngine 的 durationSec prop 随之变化）
+        task.value = { ...task.value, ...next }
+        if (durChanged && phase.value === 'typing') {
+          const min = Math.round(next.duration_sec / 60)
+          message.info(`⏱ 教师已将练习时长调整为 ${min} 分钟`, { duration: 5000 })
+        }
+        if (statusChanged && next.status === 'closed' && phase.value === 'typing') {
+          message.warning('任务已被关闭，正在自动提交本次成绩…', { duration: 5000 })
+          engine.value?.finish()
+        }
+      })
+    .subscribe()
+}
 
 // ---- 实时大屏广播：学生练习中每秒向 task-live 频道发送一次成绩 ----
 let liveChannel = null
@@ -63,7 +90,10 @@ function onProgress(s) {
   lastSend = now
   broadcast(s, false)
 }
-onBeforeUnmount(() => { if (liveChannel) supabase.removeChannel(liveChannel) })
+onBeforeUnmount(() => {
+  if (liveChannel) supabase.removeChannel(liveChannel)
+  if (taskChannel) supabase.removeChannel(taskChannel)
+})
 
 function canStart() {
   if (!task.value) return false
@@ -119,7 +149,7 @@ async function onFinish(r) {
           <h2 style="margin:0">{{ task.title }}</h2>
           <n-button size="small" @click="phase = 'preview'">放弃本次</n-button>
         </n-space>
-        <TypingEngine :text="text.content" :duration-sec="task.duration_sec" :loop="true" @finish="onFinish" @progress="onProgress" />
+        <TypingEngine ref="engine" :text="text.content" :duration-sec="task.duration_sec" :loop="true" @finish="onFinish" @progress="onProgress" />
       </div>
 
       <!-- 结果 -->
