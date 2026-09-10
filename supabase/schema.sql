@@ -23,6 +23,8 @@ create table if not exists users (
   password_hash text not null,
   avatar text default '',            -- DiceBear 配置或图片URL
   must_complete_profile boolean default true,
+  totp_secret text,                  -- 身份验证器密钥（Base32）；null = 未设置
+  totp_enabled boolean not null default false,
   created_at timestamptz default now()
 );
 alter table classes add constraint classes_teacher_fk
@@ -194,6 +196,7 @@ grant update (name, class_id, avatar, must_complete_profile) on users to anon, a
 -- ============================================================
 
 -- 学生登录：学号 + 姓名 + 密码；教师/管理员登录：账号 + 密码（p_name 传空）
+-- 若教师启用了 TOTP，返回 totp_required:true，客户端须完成第二步验证后才写 session
 create or replace function fn_login(p_account text, p_name text, p_password text)
 returns json language plpgsql security definer set search_path = public, extensions as $$
 declare u users%rowtype; cname text;
@@ -207,10 +210,38 @@ begin
     return json_build_object('ok', false, 'msg', '密码错误');
   end if;
   select name into cname from classes where id = u.class_id;
-  return json_build_object('ok', true, 'user', json_build_object(
-    'id', u.id, 'student_no', u.student_no, 'name', u.name, 'role', u.role,
-    'class_id', u.class_id, 'class_name', cname, 'avatar', u.avatar,
-    'must_complete_profile', u.must_complete_profile));
+  return json_build_object(
+    'ok', true,
+    'totp_required', coalesce(u.totp_enabled, false) and u.role in ('teacher','super'),
+    'user', json_build_object(
+      'id', u.id, 'student_no', u.student_no, 'name', u.name, 'role', u.role,
+      'class_id', u.class_id, 'class_name', cname, 'avatar', u.avatar,
+      'must_complete_profile', u.must_complete_profile));
+end $$;
+
+-- 二步验证：密码已核验后，凭账号+密码取回 TOTP secret 供客户端校验验证码
+create or replace function fn_get_totp_secret(p_account text, p_password text)
+returns json language plpgsql security definer set search_path = public, extensions as $$
+declare u users%rowtype;
+begin
+  select * into u from users where student_no = p_account and role in ('teacher','super');
+  if u.id is null then return json_build_object('ok', false, 'msg', '账号不存在'); end if;
+  if u.password_hash <> crypt(p_password, u.password_hash) then
+    return json_build_object('ok', false, 'msg', '密码错误');
+  end if;
+  if not coalesce(u.totp_enabled, false) then return json_build_object('ok', false, 'msg', '未启用TOTP'); end if;
+  return json_build_object('ok', true, 'secret', u.totp_secret);
+end $$;
+
+-- 保存/关闭 TOTP（首次绑定验证码正确后调用；关闭时 p_secret=null, p_enabled=false）
+create or replace function fn_save_totp(p_user_id uuid, p_secret text, p_enabled boolean)
+returns json language plpgsql security definer set search_path = public, extensions as $$
+declare u_role text;
+begin
+  select role into u_role from users where id = p_user_id;
+  if u_role not in ('teacher','super') then return json_build_object('ok', false, 'msg', '无权限'); end if;
+  update users set totp_secret = p_secret, totp_enabled = coalesce(p_enabled, false) where id = p_user_id;
+  return json_build_object('ok', true);
 end $$;
 
 create or replace function fn_change_password(p_user_id uuid, p_old text, p_new text)
@@ -271,7 +302,7 @@ begin
   return json_build_object('ok', true);
 end $$;
 
-grant execute on function fn_login, fn_change_password, fn_import_students, fn_create_teacher, fn_reset_password to anon, authenticated;
+grant execute on function fn_login, fn_change_password, fn_import_students, fn_create_teacher, fn_reset_password, fn_get_totp_secret, fn_save_totp to anon, authenticated;
 
 -- ============================================================
 -- 种子数据

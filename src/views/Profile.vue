@@ -7,6 +7,8 @@ import {
 } from 'naive-ui'
 import * as echarts from 'echarts'
 import { supabase, dbAvailable } from '../lib/supabase'
+import { generateSecret, verifyTotp, totpUri } from '../lib/totp'
+import QRCode from 'qrcode'
 import { useUserStore } from '../stores/user'
 import { useSettingsStore, THEMES, FONT_SIZES } from '../stores/settings'
 import { AVATAR_STYLES, avatarUrl } from '../lib/avatar'
@@ -203,6 +205,55 @@ async function changePwd() {
     message.success('密码修改成功')
     pwd.value = { old: '', n1: '', n2: '' }
   } catch (e) { message.error(e.message) }
+}
+
+// ---- 身份验证器 TOTP（教师/超管） ----
+
+const totpEnabled = ref(false)
+const totpSetup = ref(false)   // 设置引导展开
+const totpSecret = ref('')
+const totpQr = ref('')         // QR code data URL
+const totpVerify = ref('')     // 用户输入验证码
+const totpSaving = ref(false)
+
+async function loadTotpStatus() {
+  if (!user.isTeacher) return
+  const { data } = await supabase.from('users').select('totp_enabled').eq('id', user.user.id).single()
+  totpEnabled.value = !!data?.totp_enabled
+}
+onMounted(() => { loadTotpStatus() })
+
+async function startTotpSetup() {
+  totpSecret.value = generateSecret()
+  const uri = totpUri(totpSecret.value, user.user.student_no)
+  try {
+    const QRCode = (await import('qrcode')).default
+    totpQr.value = await QRCode.toDataURL(uri, { width: 200, margin: 2 })
+  } catch { totpQr.value = '' }
+  totpVerify.value = ''
+  totpSetup.value = true
+}
+
+async function confirmTotpSetup() {
+  if (!totpVerify.value || totpVerify.value.replace(/\s/g, '').length !== 6) return message.warning('请输入 6 位验证码')
+  const ok = await verifyTotp(totpSecret.value, totpVerify.value)
+  if (!ok) return message.error('验证码错误，请确认手机时间准确后重试')
+  totpSaving.value = true
+  try {
+    const { data } = await supabase.rpc('fn_save_totp', { p_user_id: user.user.id, p_secret: totpSecret.value, p_enabled: true })
+    if (!data?.ok) throw new Error(data?.msg || '保存失败')
+    totpEnabled.value = true
+    totpSetup.value = false
+    message.success('身份验证器已启用！下次登录需输入验证码')
+  } catch (e) { message.error(e.message) } finally { totpSaving.value = false }
+}
+
+async function disableTotp() {
+  const { data } = await supabase.rpc('fn_save_totp', { p_user_id: user.user.id, p_secret: null, p_enabled: false })
+  if (!data?.ok) return message.error(data?.msg || '操作失败')
+  totpEnabled.value = false
+  totpSetup.value = false
+  message.success('身份验证器已关闭')
 }
 
 function fmtSec(s) { return s >= 3600 ? `${(s / 3600).toFixed(1)}h` : `${Math.round(s / 60)}min` }
@@ -416,6 +467,44 @@ function fmtSec(s) { return s >= 3600 ? `${(s / 3600).toFixed(1)}h` : `${Math.ro
               <n-form-item label="确认新密码"><n-input v-model:value="pwd.n2" type="password" show-password-on="click" /></n-form-item>
               <n-form-item><n-button type="primary" @click="changePwd">修改</n-button></n-form-item>
             </n-form>
+          </n-card>
+
+          <!-- 身份验证器（仅教师/超管） -->
+          <n-card v-if="user.isTeacher" size="small" title="🔐 身份验证器（两步验证）" style="margin-top:14px">
+            <div v-if="!totpSetup">
+              <n-space align="center">
+                <span>状态：</span>
+                <n-tag :type="totpEnabled ? 'success' : 'default'" round>{{ totpEnabled ? '✅ 已启用' : '未启用' }}</n-tag>
+                <n-button v-if="!totpEnabled" type="primary" size="small" @click="startTotpSetup">启用身份验证器</n-button>
+                <n-button v-else size="small" type="error" quaternary @click="disableTotp">关闭两步验证</n-button>
+              </n-space>
+              <p style="font-size:13px;opacity:.6;margin:10px 0 0">启用后，每次教师登录除密码外还需输入验证器 App 中的 6 位动态验证码。</p>
+            </div>
+
+            <div v-else>
+              <div style="font-size:13px;opacity:.7;margin-bottom:14px">
+                1. 在手机上安装 <b>Google Authenticator</b> 或 <b>Microsoft Authenticator</b><br>
+                2. 扫描下方二维码，或手动输入密钥<br>
+                3. 输入 App 中显示的 6 位验证码确认
+              </div>
+              <n-space align="flex-start">
+                <div>
+                  <img v-if="totpQr" :src="totpQr" width="170" height="170" style="border-radius:8px;border:1px solid rgba(127,127,127,.2)" alt="TOTP QR" />
+                  <div style="margin-top:8px;font-size:12px;opacity:.6">密钥（手动输入）：</div>
+                  <code style="font-size:13px;letter-spacing:2px;word-break:break-all">{{ totpSecret }}</code>
+                </div>
+                <div style="flex:1;min-width:200px">
+                  <n-form-item label="输入验证码确认">
+                    <n-input v-model:value="totpVerify" placeholder="6 位数字" maxlength="6"
+                      style="letter-spacing:4px;font-size:18px" @keyup.enter="confirmTotpSetup" />
+                  </n-form-item>
+                  <n-space>
+                    <n-button type="primary" :loading="totpSaving" @click="confirmTotpSetup">确认启用</n-button>
+                    <n-button @click="totpSetup=false">取消</n-button>
+                  </n-space>
+                </div>
+              </n-space>
+            </div>
           </n-card>
         </n-tab-pane>
       </n-tabs>

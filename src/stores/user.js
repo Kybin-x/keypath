@@ -14,13 +14,19 @@ export const useUserStore = defineStore('user', {
     isSuper: s => s.user?.role === 'super',
   },
   actions: {
-    async login(account, name, password) {
+    async login(account, name, password, { dryRun = false } = {}) {
       const { data, error } = await supabase.rpc('fn_login', { p_account: account, p_name: name, p_password: password })
       if (error) throw new Error('无法连接数据库，请确认已在 Supabase 运行 schema.sql（' + error.message + '）')
       if (!data.ok) throw new Error(data.msg)
+      // dryRun: 密码验证通过但不写 session（TOTP 未验证）
+      if (dryRun && data.totp_required) return data
       this.user = data.user
       localStorage.setItem(KEY, JSON.stringify(data.user))
-      return data.user
+      return data
+    },
+    setUser(u) {
+      this.user = u
+      localStorage.setItem(KEY, JSON.stringify(u))
     },
     logout() {
       this.user = null
