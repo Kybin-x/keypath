@@ -149,7 +149,7 @@ async function onFinish(r) {
           <h2 style="margin:0">{{ task.title }}</h2>
           <n-button size="small" @click="phase = 'preview'">放弃本次</n-button>
         </n-space>
-        <TypingEngine ref="engine" :text="text.content" :duration-sec="task.duration_sec" :loop="true" @finish="onFinish" @progress="onProgress" />
+        <TypingEngine ref="engine" :text="text.content" :duration-sec="task.duration_sec" :loop="true" :show-pinyin="task.show_pinyin !== false" @finish="onFinish" @progress="onProgress" />
       </div>
 
       <!-- 结果 -->

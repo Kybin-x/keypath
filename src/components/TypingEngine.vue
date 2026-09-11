@@ -11,6 +11,7 @@ const props = defineProps({
   durationSec: { type: Number, default: 0 }, // 0 = 不限时（打完文稿即结束）
   loop: { type: Boolean, default: true },     // 短文循环
   showKeyboard: { type: Boolean, default: true },
+  showPinyin: { type: Boolean, default: true },
   autoFocus: { type: Boolean, default: true },
   meanings: { type: Object, default: null }, // {word: 中文释义}，打完单词后浮现
 })
@@ -222,6 +223,10 @@ function fmtTime(s) { const m = Math.floor(s / 60); return `${m}:${String(Math.f
 // ---- 键盘显隐 & 拼音提示 ----
 const isZh = computed(() => /[一-龥]/.test(props.text))
 
+// 学生可在本地切换；教师通过 prop 变化时覆盖学生本地状态
+const localPinyinVisible = ref(props.showPinyin)
+watch(() => props.showPinyin, v => { localPinyinVisible.value = v })
+
 function loadKbVisible() {
   const key = isZh.value ? 'kp_kb_zh' : 'kp_kb_en'
   const stored = localStorage.getItem(key)
@@ -273,15 +278,21 @@ const pinyinHints = computed(() => {
       </div>
     </Transition>
 
-    <!-- 中文：拼音提示条居中，无键盘 -->
-    <div v-if="showKeyboard && isZh && pinyinHints.length" class="py-bar">
-      <div class="py-hints">
-        <span v-for="(h, i) in pinyinHints" :key="i" class="py-hint">
-          <span class="py-ch">{{ h.ch }}</span>
-          <span class="py-py">{{ h.py }}</span>
-        </span>
+    <!-- 中文：拼音提示条居中，含学生本地开关 -->
+    <template v-if="showKeyboard && isZh">
+      <div v-if="localPinyinVisible && pinyinHints.length" class="py-bar">
+        <div class="py-hints">
+          <span v-for="(h, i) in pinyinHints" :key="i" class="py-hint">
+            <span class="py-ch">{{ h.ch }}</span>
+            <span class="py-py">{{ h.py }}</span>
+          </span>
+        </div>
+        <button class="py-close" @click.stop="localPinyinVisible = false" title="隐藏拼音">×</button>
       </div>
-    </div>
+      <div v-else class="py-reopen-bar">
+        <button class="py-reopen-btn" @click.stop="localPinyinVisible = true">拼音提示 ∨</button>
+      </div>
+    </template>
 
     <!-- 英文/键位：折叠按钮 + 键盘 -->
     <template v-if="showKeyboard && !isZh">
@@ -349,6 +360,23 @@ const pinyinHints = computed(() => {
 .py-hint { display: flex; flex-direction: column; align-items: center; gap: 5px; }
 .py-ch { font-weight: 700; line-height: 1; }
 .py-py { font-weight: 500; letter-spacing: .04em; }
+
+/* 关闭按钮 */
+.py-close {
+  position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+  background: none; border: none; cursor: pointer; font-size: 18px; line-height: 1;
+  color: inherit; opacity: .3; padding: 4px 6px; border-radius: 4px;
+  transition: opacity .15s;
+}
+.py-close:hover { opacity: .75; }
+.py-bar { position: relative; }
+
+/* 重新展开条 */
+.py-reopen-bar { display: flex; justify-content: center; margin: 10px 0 4px; }
+.py-reopen-btn { background: none; border: none; cursor: pointer; font-size: 12px;
+  color: inherit; opacity: .4; padding: 4px 12px; border-radius: 20px;
+  transition: opacity .15s; }
+.py-reopen-btn:hover { opacity: .8; }
 
 /* 当前字：主色胶囊 */
 .py-hint:nth-child(1) .py-ch {

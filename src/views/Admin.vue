@@ -345,7 +345,7 @@ function newTask() {
     title: '', note: '', text_id: null,
     range: [Date.now(), Date.now() + 7 * 86400000],
     duration_min: 5, allow_retry: true, score_rule: 'best', status: 'open',
-    class_ids: [], excluded: [],
+    show_pinyin: true, class_ids: [], excluded: [],
   }
   showTask.value = true
 }
@@ -362,7 +362,7 @@ async function editTask(t) {
     range: [new Date(t.start_at).getTime(), new Date(t.deadline).getTime()],
     duration_min: Math.round(t.duration_sec / 60),
     allow_retry: t.allow_retry, score_rule: t.score_rule, status: t.status,
-    class_ids, excluded,
+    show_pinyin: t.show_pinyin !== false, class_ids, excluded,
   }
   showTask.value = true
 }
@@ -375,7 +375,7 @@ async function saveTask() {
   const fields = {
     title: f.title, note: f.note, text_id: f.text_id, teacher_id: user.user.id,
     start_at: new Date(f.range[0]).toISOString(), deadline: new Date(f.range[1]).toISOString(),
-    duration_sec: f.duration_min * 60, allow_retry: f.allow_retry, score_rule: f.score_rule, status: f.status,
+    duration_sec: f.duration_min * 60, allow_retry: f.allow_retry, score_rule: f.score_rule, status: f.status, show_pinyin: f.show_pinyin,
   }
   let taskId
   if (f.id) {
@@ -656,6 +656,8 @@ const STATUS_TAG = { draft: ['草稿', 'default'], open: ['进行中', 'success'
               <n-space align="center">
                 <span>练习时长</span>
                 <n-input-number v-model:value="taskForm.duration_min" :min="1" :max="60" style="width: 110px"><template #suffix>分钟</template></n-input-number>
+                <span style="margin-left:12px">拼音提示</span>
+                <n-switch v-model:value="taskForm.show_pinyin" />
                 <span style="margin-left:12px">允许重复提交</span>
                 <n-switch v-model:value="taskForm.allow_retry" />
                 <n-radio-group v-model:value="taskForm.score_rule" size="small" :disabled="!taskForm.allow_retry">
