@@ -108,21 +108,17 @@ const medal = i => ['🥇', '🥈', '🥉'][i] || (i + 1)
       <TransitionGroup name="rank" tag="div" class="card-grid">
         <div v-for="(s, i) in sorted" :key="s.sid" class="stu-card"
           :class="{ top3: i < 3 && s.started, waiting: !s.started, done: s.done && !s.typing, idle: s.idle }">
-          <div class="rank">{{ s.started ? medal(i) : '—' }}</div>
-          <img class="avatar" :src="avatarUrl(s.avatar, s.name)" :alt="s.name" />
-          <div class="info">
-            <div class="name">{{ s.name }}</div>
-            <div class="status">
-              <span v-if="!s.started" class="st gray">未开始</span>
-              <span v-else-if="s.done && !s.typing" class="st green">✅ 已完成</span>
-              <span v-else-if="s.idle" class="st orange">⏸ 暂停中</span>
-              <span v-else class="st blue typing-dot">⌨️ 输入中</span>
-            </div>
+          <div class="c-rank">{{ s.started ? medal(i) : '—' }}</div>
+          <img class="c-avatar" :src="avatarUrl(s.avatar, s.name)" :alt="s.name" />
+          <div class="c-name">{{ s.name }}</div>
+          <div class="c-cpm"><b>{{ s.cpm || 0 }}</b><small>CPM</small></div>
+          <div class="c-status">
+            <span v-if="!s.started" class="st gray">未开始</span>
+            <span v-else-if="s.done && !s.typing" class="st green">✅ 已完成</span>
+            <span v-else-if="s.idle" class="st orange">⏸ 暂停中</span>
+            <span v-else class="st blue typing-dot">⌨️ 输入中</span>
           </div>
-          <div class="metrics">
-            <div class="cpm"><b>{{ s.cpm || 0 }}</b><small>CPM</small></div>
-            <div class="acc">{{ s.accuracy || 0 }}<small>%</small></div>
-          </div>
+          <div class="c-acc">{{ s.accuracy || 0 }}<small>%</small></div>
           <div class="bar"><div class="fill" :style="{ width: (s.done ? 100 : s.pct) + '%' }"></div></div>
         </div>
       </TransitionGroup>
@@ -139,30 +135,45 @@ const medal = i => ['🥇', '🥈', '🥉'][i] || (i + 1)
 .live-board:fullscreen .lb-header h1 { font-size: 36px; }
 .sub { margin: 6px 0 0; opacity: .65; font-size: 14px; }
 .lb-actions { display: flex; gap: 8px; }
-.card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
-.live-board:fullscreen .card-grid { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 18px; }
-.stu-card { position: relative; display: flex; align-items: center; gap: 12px; padding: 14px 16px 20px;
-  border-radius: 14px; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.1);
-  overflow: hidden; transition: background .3s; }
-.stu-card.top3 { background: linear-gradient(135deg, rgba(250,204,21,.16), rgba(255,255,255,.06));
-  border-color: rgba(250,204,21,.45); }
+.card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.live-board:fullscreen .card-grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+
+/* 卡片用 grid 布局：rank | avatar | name+status | cpm+acc */
+.stu-card {
+  display: grid;
+  grid-template-columns: 34px 46px 1fr auto;
+  grid-template-rows: auto auto 5px;
+  column-gap: 10px;
+  row-gap: 1px;
+  padding: 12px 14px 0;
+  border-radius: 14px;
+  background: rgba(255,255,255,.07);
+  border: 1px solid rgba(255,255,255,.1);
+  overflow: hidden;
+  transition: background .3s;
+}
+.stu-card.top3 { background: linear-gradient(135deg, rgba(250,204,21,.16), rgba(255,255,255,.06)); border-color: rgba(250,204,21,.45); }
 .stu-card.waiting { opacity: .45; }
 .stu-card.done { border-color: rgba(52,211,153,.5); }
 .stu-card.idle { border-color: rgba(251,146,60,.5); }
-.rank { font-size: 24px; font-weight: 900; width: 36px; text-align: center; flex-shrink: 0; }
-.avatar { width: 44px; height: 44px; border-radius: 50%; background: #fff2; flex-shrink: 0; }
-.info { flex: 1; min-width: 0; }
-.name { font-weight: 700; font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.status { font-size: 12px; margin-top: 2px; }
+
+.c-rank { grid-column: 1; grid-row: 1/3; align-self: center; font-size: 20px; font-weight: 900; text-align: center; }
+.c-avatar { grid-column: 2; grid-row: 1/3; align-self: center; width: 42px; height: 42px; border-radius: 50%; background: #fff2; }
+.c-name { grid-column: 3; grid-row: 1; font-weight: 700; font-size: 15px; line-height: 1.35;
+  word-break: break-all; align-self: end; }
+.c-cpm { grid-column: 4; grid-row: 1; text-align: right; align-self: end; font-variant-numeric: tabular-nums; }
+.c-cpm b { font-size: 26px; color: #fde047; }
+.live-board:fullscreen .c-cpm b { font-size: 34px; }
+.c-cpm small { opacity: .55; margin-left: 2px; font-size: 11px; }
+.c-status { grid-column: 3; grid-row: 2; font-size: 11px; padding-bottom: 10px; align-self: start; }
+.c-acc { grid-column: 4; grid-row: 2; font-size: 14px; font-variant-numeric: tabular-nums;
+  color: #6ee7b7; text-align: right; padding-bottom: 10px; align-self: start; }
+.c-acc small { opacity: .55; margin-left: 1px; font-size: 10px; }
+
 .st.gray { color: #94a3b8; } .st.green { color: #34d399; } .st.orange { color: #fb923c; } .st.blue { color: #38bdf8; }
 .typing-dot { animation: pulse 1.2s infinite; }
 @keyframes pulse { 50% { opacity: .45; } }
-.metrics { display: flex; align-items: baseline; gap: 12px; flex-shrink: 0; }
-.cpm b { font-size: 30px; font-variant-numeric: tabular-nums; color: #fde047; }
-.live-board:fullscreen .cpm b { font-size: 38px; }
-.cpm small, .acc small { opacity: .55; margin-left: 2px; font-size: 11px; }
-.acc { font-size: 16px; font-variant-numeric: tabular-nums; color: #6ee7b7; }
-.bar { position: absolute; left: 0; right: 0; bottom: 0; height: 5px; background: rgba(255,255,255,.08); }
+.bar { grid-column: 1/5; grid-row: 3; height: 5px; background: rgba(255,255,255,.08); margin: 0 -14px; }
 .fill { height: 100%; background: linear-gradient(90deg, #38bdf8, #a78bfa); transition: width .8s; }
 /* 名次变化的 FLIP 重排动画 */
 .rank-move { transition: transform .6s cubic-bezier(.22,1,.36,1); }
