@@ -400,6 +400,31 @@ async function setTaskStatus(t, status) {
   await supabase.from('tasks').update({ status }).eq('id', t.id)
   loadAll()
 }
+
+// ---- 重新开启已截止任务 ----
+const showReopen = ref(false)
+const reopenTarget = ref(null)
+const reopenDeadline = ref(null)
+function openReopen(t) {
+  reopenTarget.value = t
+  // 默认新截止时间 = 当前时间 + 原任务时长（至少1天）
+  const dur = Math.max(t.duration_sec * 1000, 24 * 3600 * 1000)
+  reopenDeadline.value = Date.now() + dur
+  showReopen.value = true
+}
+async function doReopen() {
+  if (!reopenDeadline.value) return message.warning('请设置新的截止时间')
+  if (reopenDeadline.value <= Date.now()) return message.warning('截止时间必须在当前时间之后')
+  const t = reopenTarget.value
+  await supabase.from('tasks').update({
+    status: 'open',
+    start_at: new Date().toISOString(),
+    deadline: new Date(reopenDeadline.value).toISOString(),
+  }).eq('id', t.id)
+  message.success('任务已重新开启')
+  showReopen.value = false
+  loadAll()
+}
 async function deleteTask(t) {
   await supabase.from('tasks').delete().eq('id', t.id)
   loadAll()
@@ -582,11 +607,12 @@ const STATUS_TAG = { draft: ['草稿', 'default'], open: ['进行中', 'success'
                 </div>
               </div>
               <n-space size="small">
-                <n-button v-if="t.status === 'open'" size="tiny" type="info" @click="$router.push(`/admin/live/${t.id}`)">📺 实时大屏</n-button>
+                <n-button v-if="t.status === 'open' || t.status === 'closed'" size="tiny" type="info" @click="$router.push(`/admin/live/${t.id}`)">📺 实时大屏</n-button>
                 <n-button size="tiny" @click="viewTask = t">查看成绩</n-button>
                 <n-button size="tiny" @click="editTask(t)">编辑</n-button>
                 <n-button v-if="t.status === 'open'" size="tiny" @click="setTaskStatus(t, 'closed')">截止</n-button>
-                <n-button v-else-if="t.status === 'closed'" size="tiny" @click="setTaskStatus(t, 'archived')">归档</n-button>
+                <n-button v-if="t.status === 'closed'" size="tiny" type="warning" @click="openReopen(t)">重新开启</n-button>
+                <n-button v-if="t.status === 'closed'" size="tiny" @click="setTaskStatus(t, 'archived')">归档</n-button>
                 <n-button v-if="t.status === 'draft'" size="tiny" type="primary" @click="setTaskStatus(t, 'open')">发布</n-button>
                 <n-popconfirm @positive-click="deleteTask(t)"><template #trigger><n-button size="tiny" type="error" quaternary>删除</n-button></template>确定删除任务及其全部成绩？</n-popconfirm>
               </n-space>
@@ -658,6 +684,19 @@ const STATUS_TAG = { draft: ['草稿', 'default'], open: ['进行中', 'success'
                 <n-radio-button value="draft">存为草稿</n-radio-button>
               </n-radio-group>
               <n-button type="primary" block @click="saveTask">{{ taskForm?.id ? '保存修改' : '确认发布' }}</n-button>
+            </n-space>
+          </n-modal>
+
+          <!-- 重新开启任务弹窗 -->
+          <n-modal v-model:show="showReopen" preset="card" title="重新开启任务" style="max-width: 420px">
+            <n-space vertical>
+              <div style="font-size:14px;opacity:.7">任务将立即对学生开放，请设置新的截止时间：</div>
+              <n-date-picker v-model:value="reopenDeadline" type="datetime" :is-date-disabled="ts => ts < Date.now() - 86400000" style="width:100%" />
+              <div style="font-size:12px;opacity:.5">已提交的学生成绩保留，实时大屏将显示所有同学的历史成绩</div>
+              <n-space justify="end">
+                <n-button @click="showReopen = false">取消</n-button>
+                <n-button type="primary" @click="doReopen">确认开启</n-button>
+              </n-space>
             </n-space>
           </n-modal>
         </n-tab-pane>
