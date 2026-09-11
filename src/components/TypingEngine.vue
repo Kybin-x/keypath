@@ -4,6 +4,7 @@ import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useSettingsStore } from '../stores/settings'
 import { playKey } from '../lib/sound'
 import KeyboardView from './KeyboardView.vue'
+import { pinyin } from 'pinyin-pro'
 
 const props = defineProps({
   text: { type: String, required: true },
@@ -217,6 +218,37 @@ const remainSec = computed(() => props.durationSec > 0 ? Math.max(0, props.durat
 const live = computed(() => stats())
 const nextKey = computed(() => fullTarget.value[pos.value] || '')
 function fmtTime(s) { const m = Math.floor(s / 60); return `${m}:${String(Math.floor(s % 60)).padStart(2, '0')}` }
+
+// ---- 键盘显隐 & 拼音提示 ----
+const isZh = computed(() => /[一-龥]/.test(props.text))
+
+function loadKbVisible() {
+  const key = isZh.value ? 'kp_kb_zh' : 'kp_kb_en'
+  const stored = localStorage.getItem(key)
+  return stored !== null ? stored === 'true' : !isZh.value
+}
+const kbVisible = ref(loadKbVisible())
+watch(isZh, () => { kbVisible.value = loadKbVisible() })
+watch(kbVisible, v => {
+  try { localStorage.setItem(isZh.value ? 'kp_kb_zh' : 'kp_kb_en', v) } catch {}
+})
+
+const ZH_RE = /[一-龥]/
+const pinyinHints = computed(() => {
+  if (!isZh.value || !props.showKeyboard) return []
+  const t = fullTarget.value
+  const hints = []
+  for (let i = pos.value; i < t.length && hints.length < 4; i++) {
+    const ch = t[i]
+    if (ch === '\n') break
+    hints.push({
+      ch,
+      py: ZH_RE.test(ch) ? pinyin(ch, { toneType: 'symbol', type: 'string' }) : '',
+      current: i === pos.value,
+    })
+  }
+  return hints
+})
 </script>
 
 <template>
@@ -245,7 +277,21 @@ function fmtTime(s) { const m = Math.floor(s / 60); return `${m}:${String(Math.f
       </div>
     </Transition>
 
-    <KeyboardView v-if="showKeyboard" :active-key="nextKey" :error-keys="errorKeys" />
+    <!-- 拼音提示条 + 键盘折叠开关 -->
+    <div v-if="showKeyboard" class="kb-bar">
+      <div class="py-hints" v-if="isZh">
+        <span v-for="(h, i) in pinyinHints" :key="i" class="py-hint" :class="{ 'py-cur': h.current, 'py-dim': !h.current }">
+          <span class="py-ch">{{ h.ch }}</span>
+          <span class="py-py">{{ h.py }}</span>
+        </span>
+        <span v-if="!pinyinHints.length" class="py-empty">—</span>
+      </div>
+      <div class="kb-spacer" v-else />
+      <button class="kb-toggle" @click.stop="kbVisible = !kbVisible">
+        {{ kbVisible ? '收起键盘 ∧' : '展开键盘 ∨' }}
+      </button>
+    </div>
+    <KeyboardView v-if="showKeyboard && kbVisible" :active-key="nextKey" :error-keys="errorKeys" />
   </div>
 </template>
 
@@ -287,4 +333,22 @@ function fmtTime(s) { const m = Math.floor(s / 60); return `${m}:${String(Math.f
 .meaning-leave-active { transition: opacity .4s; }
 .meaning-leave-to { opacity: 0; }
 @keyframes mfpop { 0% { transform: translateY(12px) scale(.7); opacity: 0; } 100% { transform: none; opacity: 1; } }
+
+/* 拼音提示条 */
+.kb-bar { display: flex; align-items: center; justify-content: space-between;
+  margin: 10px 0 4px; min-height: 40px; }
+.kb-spacer { flex: 1; }
+.py-hints { display: flex; align-items: flex-end; gap: 14px; flex: 1; flex-wrap: wrap; }
+.py-hint { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.py-ch { font-size: 22px; font-weight: 700; line-height: 1; }
+.py-py { font-size: 13px; font-weight: 500; letter-spacing: .5px; }
+.py-cur .py-ch { color: var(--kp-primary, #4F46E5); }
+.py-cur .py-py { color: var(--kp-primary, #4F46E5); }
+.py-dim .py-ch { opacity: .4; }
+.py-dim .py-py { opacity: .35; }
+.py-empty { opacity: .3; font-size: 18px; }
+.kb-toggle { flex-shrink: 0; padding: 5px 14px; border-radius: 20px; border: 1.5px solid rgba(127,127,127,.3);
+  background: transparent; cursor: pointer; font-size: 13px; color: inherit; opacity: .65;
+  transition: opacity .15s, border-color .15s; }
+.kb-toggle:hover { opacity: 1; border-color: var(--kp-primary, #4F46E5); }
 </style>
