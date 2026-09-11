@@ -241,11 +241,7 @@ const pinyinHints = computed(() => {
   for (let i = pos.value; i < t.length && hints.length < 4; i++) {
     const ch = t[i]
     if (ch === '\n') break
-    hints.push({
-      ch,
-      py: ZH_RE.test(ch) ? pinyin(ch, { toneType: 'symbol', type: 'string' }) : '',
-      current: i === pos.value,
-    })
+    hints.push({ ch, py: ZH_RE.test(ch) ? pinyin(ch, { toneType: 'symbol', type: 'string' }) : '' })
   }
   return hints
 })
@@ -277,21 +273,26 @@ const pinyinHints = computed(() => {
       </div>
     </Transition>
 
-    <!-- 拼音提示条 + 键盘折叠开关 -->
-    <div v-if="showKeyboard" class="kb-bar">
-      <div class="py-hints" v-if="isZh">
-        <span v-for="(h, i) in pinyinHints" :key="i" class="py-hint" :class="{ 'py-cur': h.current, 'py-dim': !h.current }">
+    <!-- 中文：拼音提示条居中，无键盘 -->
+    <div v-if="showKeyboard && isZh && pinyinHints.length" class="py-bar">
+      <div class="py-hints">
+        <span v-for="(h, i) in pinyinHints" :key="i" class="py-hint">
           <span class="py-ch">{{ h.ch }}</span>
           <span class="py-py">{{ h.py }}</span>
         </span>
-        <span v-if="!pinyinHints.length" class="py-empty">—</span>
       </div>
-      <div class="kb-spacer" v-else />
-      <button class="kb-toggle" @click.stop="kbVisible = !kbVisible">
-        {{ kbVisible ? '收起键盘 ∧' : '展开键盘 ∨' }}
-      </button>
     </div>
-    <KeyboardView v-if="showKeyboard && kbVisible" :active-key="nextKey" :error-keys="errorKeys" />
+
+    <!-- 英文/键位：折叠按钮 + 键盘 -->
+    <template v-if="showKeyboard && !isZh">
+      <div class="kb-bar">
+        <div class="kb-spacer" />
+        <button class="kb-toggle" @click.stop="kbVisible = !kbVisible">
+          {{ kbVisible ? '收起键盘 ∧' : '展开键盘 ∨' }}
+        </button>
+      </div>
+      <KeyboardView v-if="kbVisible" :active-key="nextKey" :error-keys="errorKeys" />
+    </template>
   </div>
 </template>
 
@@ -334,21 +335,49 @@ const pinyinHints = computed(() => {
 .meaning-leave-to { opacity: 0; }
 @keyframes mfpop { 0% { transform: translateY(12px) scale(.7); opacity: 0; } 100% { transform: none; opacity: 1; } }
 
-/* 拼音提示条 */
-.kb-bar { display: flex; align-items: center; justify-content: space-between;
-  margin: 10px 0 4px; min-height: 40px; }
+/* 拼音提示条（中文模式，居中） */
+.py-bar {
+  display: flex;
+  justify-content: center;
+  margin: 12px 0 4px;
+  padding: 10px 20px;
+  border-radius: 12px;
+  background: rgba(79,70,229,.07);
+}
+.dark .py-bar { background: rgba(79,70,229,.13); }
+.py-hints { display: flex; align-items: flex-end; gap: 20px; justify-content: center; }
+.py-hint { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.py-ch { font-weight: 700; line-height: 1; }
+.py-py { font-weight: 500; letter-spacing: .04em; }
+
+/* 当前字：主色胶囊 */
+.py-hint:nth-child(1) .py-ch {
+  font-size: 30px;
+  background: var(--kp-primary, #4F46E5);
+  color: #fff;
+  padding: 5px 14px 6px;
+  border-radius: 9px;
+}
+.py-hint:nth-child(1) .py-py { font-size: 15px; font-weight: 600; color: var(--kp-primary, #4F46E5); }
+
+/* 后续字梯度淡出 */
+.py-hint:nth-child(2) { opacity: .58; }
+.py-hint:nth-child(2) .py-ch { font-size: 22px; }
+.py-hint:nth-child(2) .py-py { font-size: 13px; }
+
+.py-hint:nth-child(3) { opacity: .36; }
+.py-hint:nth-child(3) .py-ch { font-size: 19px; }
+.py-hint:nth-child(3) .py-py { font-size: 12px; }
+
+.py-hint:nth-child(4) { opacity: .2; }
+.py-hint:nth-child(4) .py-ch { font-size: 16px; }
+.py-hint:nth-child(4) .py-py { font-size: 11px; }
+
+/* 英文模式键盘折叠条 */
+.kb-bar { display: flex; align-items: center; margin: 8px 0 4px; }
 .kb-spacer { flex: 1; }
-.py-hints { display: flex; align-items: flex-end; gap: 14px; flex: 1; flex-wrap: wrap; }
-.py-hint { display: flex; flex-direction: column; align-items: center; gap: 2px; }
-.py-ch { font-size: 22px; font-weight: 700; line-height: 1; }
-.py-py { font-size: 13px; font-weight: 500; letter-spacing: .5px; }
-.py-cur .py-ch { color: var(--kp-primary, #4F46E5); }
-.py-cur .py-py { color: var(--kp-primary, #4F46E5); }
-.py-dim .py-ch { opacity: .4; }
-.py-dim .py-py { opacity: .35; }
-.py-empty { opacity: .3; font-size: 18px; }
-.kb-toggle { flex-shrink: 0; padding: 5px 14px; border-radius: 20px; border: 1.5px solid rgba(127,127,127,.3);
-  background: transparent; cursor: pointer; font-size: 13px; color: inherit; opacity: .65;
-  transition: opacity .15s, border-color .15s; }
-.kb-toggle:hover { opacity: 1; border-color: var(--kp-primary, #4F46E5); }
+.kb-toggle { padding: 4px 12px; border-radius: 20px; border: none;
+  background: transparent; cursor: pointer; font-size: 12px; color: inherit; opacity: .5;
+  transition: opacity .15s; }
+.kb-toggle:hover { opacity: .85; }
 </style>
