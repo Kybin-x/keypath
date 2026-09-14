@@ -22,6 +22,7 @@ const students = ref([])
 const teachers = ref([])
 const texts = ref([])
 const tasks = ref([])
+const taskStudents = ref([])
 const records = ref([])
 const checkinsToday = ref([])
 const achievements = ref([])
@@ -31,12 +32,13 @@ async function loadAll() {
   loading.value = true
   try {
     const today = localDay()
-    const [c, s, te, t, k, r, ci, a, l] = await Promise.all([
+    const [c, s, te, t, k, ts, r, ci, a, l] = await Promise.all([
       supabase.from('classes').select('*').order('name'),
       supabase.from('users').select('id, student_no, name, class_id, role').eq('role', 'student').order('student_no'),
       supabase.from('users').select('id, student_no, name, role, created_at').in('role', ['teacher', 'super']).order('created_at'),
       supabase.from('texts').select('*').order('created_at'),
       supabase.from('tasks').select('*').order('created_at', { ascending: false }),
+      supabase.from('task_students').select('task_id, student_id'),
       supabase.from('task_records').select('*'),
       supabase.from('checkins').select('user_id, practice_sec').eq('day', today),
       supabase.from('achievements').select('*').order('sort'),
@@ -45,6 +47,7 @@ async function loadAll() {
     classes.value = c.data || []; students.value = s.data || []
     teachers.value = te.data || []
     texts.value = t.data || []; tasks.value = k.data || []
+    taskStudents.value = ts.data || []
     records.value = r.data || []; checkinsToday.value = ci.data || []
     achievements.value = a.data || []; logs.value = l.data || []
   } finally { loading.value = false }
@@ -53,6 +56,22 @@ onMounted(() => { loadAll(); loadGameWordsConfig() })
 
 const classMap = computed(() => Object.fromEntries(classes.value.map(c => [c.id, c.name])))
 const stuMap = computed(() => Object.fromEntries(students.value.map(s => [s.id, s])))
+
+// 每个任务涉及的班级 id 集合（用于任务列表班级筛选）
+const taskClassMap = computed(() => {
+  const map = {}
+  for (const ts of taskStudents.value) {
+    const stu = stuMap.value[ts.student_id]
+    if (!stu) continue
+    if (!map[ts.task_id]) map[ts.task_id] = new Set()
+    map[ts.task_id].add(stu.class_id)
+  }
+  return map
+})
+const taskClassFilter = ref(null)
+const filteredTasks = computed(() => taskClassFilter.value
+  ? tasks.value.filter(t => taskClassMap.value[t.id]?.has(taskClassFilter.value))
+  : tasks.value)
 
 // ---- 班级总览 ----
 const classStats = computed(() => classes.value.map(c => {
@@ -110,7 +129,8 @@ async function resetPwd(s) {
   else message.success(`${s.name} 的密码已重置为 123`)
 }
 async function removeStudent(s) {
-  await supabase.from('users').delete().eq('id', s.id)
+  const { data, error } = await supabase.rpc('fn_delete_student', { p_actor: user.user.id, p_user_id: s.id })
+  if (error || !data?.ok) return message.error('删除失败：' + (error?.message || data?.msg || '未知错误'))
   message.success('已删除')
   loadAll()
 }
@@ -136,14 +156,18 @@ function toggleStu(id) {
 async function bulkDeleteStudents() {
   const ids = [...stuSelected.value]
   if (!ids.length) return
-  await supabase.from('users').delete().in('id', ids)
+  const { data, error } = await supabase.rpc('fn_delete_students', { p_actor: user.user.id, p_ids: ids })
+  if (error || !data?.ok) return message.error('批量删除失败：' + (error?.message || data?.msg || '未知错误'))
   stuSelected.value = new Set()
   message.success(`已删除 ${ids.length} 名学生`)
   loadAll()
 }
 async function deleteClass(classId) {
   const ids = students.value.filter(s => s.class_id === classId).map(s => s.id)
-  if (ids.length) await supabase.from('users').delete().in('id', ids)
+  if (ids.length) {
+    const { data, error } = await supabase.rpc('fn_delete_students', { p_actor: user.user.id, p_ids: ids })
+    if (error || !data?.ok) return message.error('删除学生失败：' + (error?.message || data?.msg || '未知错误'))
+  }
   await supabase.from('classes').delete().eq('id', classId)
   stuClassFilter.value = null
   stuSelected.value = new Set()
@@ -239,7 +263,8 @@ async function renameTeacher(t) {
   else message.success('已保存')
 }
 async function removeTeacher(t) {
-  await supabase.from('users').delete().eq('id', t.id)
+  const { data, error } = await supabase.rpc('fn_delete_teacher', { p_actor: user.user.id, p_user_id: t.id })
+  if (error || !data?.ok) return message.error('删除失败：' + (error?.message || data?.msg || '未知错误'))
   message.success('已删除教师账号')
   loadAll()
 }
@@ -455,6 +480,24 @@ function exportCsv() {
   a.download = `${viewTask.value.title}-成绩.csv`
   a.click()
 }
+function exportAllCsv() {
+  const allRecs = records.value
+    .filter(r => r.task_id === viewTask.value.id)
+    .map(r => ({ ...r, stu: stuMap.value[r.student_id] }))
+    .sort((a, b) => new Date(a.submitted_at) - new Date(b.submitted_at))
+  const rows = [['学号', '姓名', '班级', 'CPM', 'WPM', '准确率%', '用时s', '错误数', '第几次', '提交时间']]
+  const counter = {}
+  for (const r of allRecs) {
+    const sid = r.student_id
+    counter[sid] = (counter[sid] || 0) + 1
+    rows.push([r.stu?.student_no, r.stu?.name, classMap.value[r.stu?.class_id] || '', Math.round(r.cpm), Math.round(r.wpm), r.accuracy, r.duration_sec, r.errors, counter[sid], new Date(r.submitted_at).toLocaleString('zh-CN')])
+  }
+  const csv = '﻿' + rows.map(r => r.join(',')).join('\n')
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
+  a.download = `${viewTask.value.title}-全部提交.csv`
+  a.click()
+}
 
 // ---- 成就配置 ----
 async function saveAch(a) {
@@ -593,9 +636,14 @@ const STATUS_TAG = { draft: ['草稿', 'default'], open: ['进行中', 'success'
 
         <!-- 任务管理 -->
         <n-tab-pane name="tasks" tab="📋 任务管理">
-          <n-button type="primary" @click="newTask" style="margin-bottom: 12px">＋ 发布任务</n-button>
-          <n-empty v-if="!tasks.length" description="还没有任务" />
-          <n-card v-for="t in tasks" :key="t.id" size="small" style="margin-bottom: 10px">
+          <n-space align="center" style="margin-bottom: 12px">
+            <n-button type="primary" @click="newTask">＋ 发布任务</n-button>
+            <n-select v-model:value="taskClassFilter" clearable placeholder="按班级筛选" style="width: 180px"
+              :options="classes.map(c => ({ label: c.name, value: c.id }))" />
+            <span v-if="taskClassFilter" style="font-size:13px;opacity:.55">共 {{ filteredTasks.length }} 个任务</span>
+          </n-space>
+          <n-empty v-if="!filteredTasks.length" description="还没有任务" />
+          <n-card v-for="t in filteredTasks" :key="t.id" size="small" style="margin-bottom: 10px">
             <n-space justify="space-between" align="center">
               <div>
                 <b>{{ t.title }}</b>
@@ -622,7 +670,8 @@ const STATUS_TAG = { draft: ['草稿', 'default'], open: ['进行中', 'success'
           <!-- 成绩详情 -->
           <n-modal :show="!!viewTask" preset="card" :title="`成绩 — ${viewTask?.title || ''}`" style="max-width: 760px" @update:show="v => !v && (viewTask = null)">
             <n-space justify="end" style="margin-bottom: 10px">
-              <n-button size="small" @click="exportCsv" :disabled="!taskDetailRecs.length">📥 导出 CSV</n-button>
+              <n-button size="small" @click="exportCsv" :disabled="!taskDetailRecs.length">📥 导出最优成绩</n-button>
+              <n-button size="small" @click="exportAllCsv" :disabled="!records.filter(r => r.task_id === viewTask?.id).length">📥 导出全部提交</n-button>
             </n-space>
             <n-empty v-if="!taskDetailRecs.length" description="还没有学生提交" />
             <n-table v-else size="small" :single-line="false">
