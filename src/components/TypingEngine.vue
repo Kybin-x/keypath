@@ -166,7 +166,8 @@ function onCompEnd(e) {
 }
 
 function stats() {
-  const active = Math.max(activeSec.value, 0.5)
+  // 最小 activeSec 按字符数限制：不能超过 10字/秒（600CPM）的理论上限
+  const active = Math.max(activeSec.value, correctTotal.value / 10, 0.5)
   const minutes = active / 60
   const cpm = correctTotal.value / minutes
   const wpm = (correctTotal.value / 5) / minutes

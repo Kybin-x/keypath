@@ -514,6 +514,61 @@ async function deleteTask(t) {
   loadAll()
 }
 
+// ---- 任务多选批量操作 ----
+const taskSelected = ref(new Set())
+const allTasksSelected = computed(() =>
+  filteredTasks.value.length > 0 && filteredTasks.value.every(t => taskSelected.value.has(t.id)))
+const someTasksSelected = computed(() =>
+  !allTasksSelected.value && filteredTasks.value.some(t => taskSelected.value.has(t.id)))
+function toggleTask(id) {
+  const next = new Set(taskSelected.value)
+  next.has(id) ? next.delete(id) : next.add(id)
+  taskSelected.value = next
+}
+function toggleAllTasks() {
+  const next = new Set(taskSelected.value)
+  if (allTasksSelected.value) filteredTasks.value.forEach(t => next.delete(t.id))
+  else filteredTasks.value.forEach(t => next.add(t.id))
+  taskSelected.value = next
+}
+async function bulkSetTaskStatus(status) {
+  const ids = [...taskSelected.value]
+  for (const id of ids) await supabase.from('tasks').update({ status }).eq('id', id)
+  taskSelected.value = new Set()
+  message.success('批量操作完成')
+  loadAll()
+}
+async function bulkDeleteTasks() {
+  const ids = [...taskSelected.value]
+  for (const id of ids) await supabase.from('tasks').delete().eq('id', id)
+  taskSelected.value = new Set()
+  message.success(`已删除 ${ids.length} 个任务`)
+  loadAll()
+}
+function bulkExportCsv() {
+  const ids = [...taskSelected.value]
+  const taskMap = Object.fromEntries(tasks.value.map(t => [t.id, t]))
+  const allRecs = records.value
+    .filter(r => ids.includes(r.task_id))
+    .map(r => ({ ...r, stu: stuMap.value[r.student_id], task: taskMap[r.task_id] }))
+    .sort((a, b) => new Date(a.submitted_at) - new Date(b.submitted_at))
+  if (!allRecs.length) return message.warning('所选任务暂无提交记录')
+  const rows = [['任务名称', '学号', '姓名', '班级', 'CPM', 'WPM', '准确率%', '用时s', '错误数', '第几次', '提交时间']]
+  const counter = {}
+  for (const r of allRecs) {
+    const key = `${r.task_id}-${r.student_id}`
+    counter[key] = (counter[key] || 0) + 1
+    rows.push([r.task?.title || '', r.stu?.student_no || '', r.stu?.name || '', classMap.value[r.stu?.class_id] || '',
+      Math.round(r.cpm), Math.round(r.wpm), r.accuracy, r.duration_sec, r.errors, counter[key],
+      new Date(r.submitted_at).toLocaleString('zh-CN')])
+  }
+  const csv = '﻿' + rows.map(r => r.join(',')).join('\n')
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
+  a.download = `批量导出-${ids.length}个任务.csv`
+  a.click()
+}
+
 // ---- 成绩查询与导出 ----
 const viewTask = ref(null)
 const taskDetailRecs = computed(() => {
@@ -765,20 +820,51 @@ const STATUS_TAG = { draft: ['草稿', 'default'], open: ['进行中', 'success'
             <n-button type="primary" @click="newTask">＋ 发布任务</n-button>
             <n-select v-model:value="taskClassFilter" clearable placeholder="按班级筛选" style="width: 180px"
               :options="classes.map(c => ({ label: c.name, value: c.id }))" />
-            <span v-if="taskClassFilter" style="font-size:13px;opacity:.55">共 {{ filteredTasks.length }} 个任务</span>
+            <span style="font-size:13px;opacity:.55">共 {{ filteredTasks.length }} 个任务</span>
           </n-space>
+
+          <!-- 批量操作栏 -->
+          <n-card v-if="taskSelected.size > 0" size="small" style="margin-bottom: 10px; border: 2px solid var(--kp-primary,#4F46E5)">
+            <n-space align="center">
+              <n-checkbox :checked="allTasksSelected" :indeterminate="someTasksSelected" @update:checked="toggleAllTasks" />
+              <n-tag type="info">已选 {{ taskSelected.size }} 个任务</n-tag>
+              <n-button size="small" @click="bulkExportCsv">📥 批量导出成绩</n-button>
+              <n-popconfirm @positive-click="bulkSetTaskStatus('closed')">
+                <template #trigger><n-button size="small">批量截止</n-button></template>
+                将所选任务全部设为已截止？
+              </n-popconfirm>
+              <n-popconfirm @positive-click="bulkSetTaskStatus('archived')">
+                <template #trigger><n-button size="small">批量归档</n-button></template>
+                将所选任务全部归档？
+              </n-popconfirm>
+              <n-popconfirm @positive-click="bulkDeleteTasks">
+                <template #trigger><n-button size="small" type="error">批量删除</n-button></template>
+                确定删除所选 {{ taskSelected.size }} 个任务及其全部成绩？此操作不可撤销。
+              </n-popconfirm>
+              <n-button size="small" quaternary @click="taskSelected = new Set()">取消选择</n-button>
+            </n-space>
+          </n-card>
+          <!-- 全选行（未选时显示） -->
+          <div v-else-if="filteredTasks.length" style="padding: 4px 8px; margin-bottom: 6px">
+            <n-checkbox :checked="false" @update:checked="toggleAllTasks">全选本页任务</n-checkbox>
+          </div>
+
           <n-empty v-if="!filteredTasks.length" description="还没有任务" />
-          <n-card v-for="t in filteredTasks" :key="t.id" size="small" style="margin-bottom: 10px">
+          <n-card v-for="t in filteredTasks" :key="t.id" size="small" style="margin-bottom: 10px"
+            :style="taskSelected.has(t.id) ? 'border: 1.5px solid var(--kp-primary,#4F46E5); background: rgba(79,70,229,.04)' : ''">
             <n-space justify="space-between" align="center">
-              <div>
-                <b>{{ t.title }}</b>
-                <n-tag size="tiny" round :type="STATUS_TAG[t.status][1]" style="margin-left: 8px">{{ STATUS_TAG[t.status][0] }}</n-tag>
-                <div style="font-size:12px;opacity:.6;margin-top:4px">
-                  {{ new Date(t.start_at).toLocaleString('zh-CN') }} ~ {{ new Date(t.deadline).toLocaleString('zh-CN') }}
-                  ｜ {{ Math.round(t.duration_sec / 60) }} 分钟 ｜ {{ t.score_rule === 'best' ? '取最高分' : '取最后一次' }}
-                  ｜ 提交 {{ records.filter(r => r.task_id === t.id).length }} 次
+              <n-space align="center" size="small">
+                <n-checkbox :checked="taskSelected.has(t.id)" @update:checked="() => toggleTask(t.id)" />
+                <div>
+                  <b>{{ t.title }}</b>
+                  <n-tag size="tiny" round :type="STATUS_TAG[t.status][1]" style="margin-left: 8px">{{ STATUS_TAG[t.status][0] }}</n-tag>
+                  <div style="font-size:12px;opacity:.6;margin-top:4px">
+                    {{ new Date(t.start_at).toLocaleString('zh-CN') }} ~ {{ new Date(t.deadline).toLocaleString('zh-CN') }}
+                    ｜ {{ Math.round(t.duration_sec / 60) }} 分钟 ｜ {{ t.score_rule === 'best' ? '取最高分' : '取最后一次' }}
+                    ｜ 提交 {{ records.filter(r => r.task_id === t.id).length }} 次
+                  </div>
                 </div>
-              </div>
+              </n-space>
               <n-space size="small">
                 <n-button v-if="t.status === 'open' || t.status === 'closed'" size="tiny" type="info" @click="$router.push(`/admin/live/${t.id}`)">📺 实时大屏</n-button>
                 <n-button size="tiny" @click="viewTask = t">查看成绩</n-button>

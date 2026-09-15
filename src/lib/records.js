@@ -36,9 +36,12 @@ export async function saveLog({ kind = 'practice', game = '', textId = null, res
 export async function saveTaskRecord(taskId, result, lang = '') {
   const u = useUserStore()
   if (!u.isLogin) return { unlocked: [] }
+  // CPM 上限 600（10字/秒），异常高分（如任务被强制关闭时 activeSec 极小）不入库
+  const cpm = Math.min(result.cpm || 0, 600)
+  const wpm = Math.min(result.wpm || 0, 200)
   await supabase.from('task_records').insert({
     task_id: taskId, student_id: u.user.id, lang,
-    cpm: result.cpm, wpm: result.wpm, accuracy: result.accuracy,
+    cpm, wpm, accuracy: result.accuracy,
     duration_sec: result.activeSec, total_sec: result.durationSec, errors: result.errors,
   })
   const unlocked = await evaluateAchievements({ kind: 'task', result, taskId, lang })
