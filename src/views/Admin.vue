@@ -501,6 +501,25 @@ function exportAllCsv() {
   a.download = `${viewTask.value.title}-全部提交.csv`
   a.click()
 }
+function exportTaskAllCsv(task) {
+  const allRecs = records.value
+    .filter(r => r.task_id === task.id)
+    .map(r => ({ ...r, stu: stuMap.value[r.student_id] }))
+    .sort((a, b) => new Date(a.submitted_at) - new Date(b.submitted_at))
+  if (!allRecs.length) return message.warning('该任务暂无提交记录')
+  const rows = [['学号', '姓名', '班级', 'CPM', 'WPM', '准确率%', '用时s', '错误数', '第几次', '提交时间']]
+  const counter = {}
+  for (const r of allRecs) {
+    const sid = r.student_id
+    counter[sid] = (counter[sid] || 0) + 1
+    rows.push([r.stu?.student_no, r.stu?.name, classMap.value[r.stu?.class_id] || '', Math.round(r.cpm), Math.round(r.wpm), r.accuracy, r.duration_sec, r.errors, counter[sid], new Date(r.submitted_at).toLocaleString('zh-CN')])
+  }
+  const csv = '﻿' + rows.map(r => r.join(',')).join('\n')
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
+  a.download = `${task.title}-全部提交.csv`
+  a.click()
+}
 
 // ---- 成就配置 ----
 async function saveAch(a) {
@@ -660,6 +679,7 @@ const STATUS_TAG = { draft: ['草稿', 'default'], open: ['进行中', 'success'
               <n-space size="small">
                 <n-button v-if="t.status === 'open' || t.status === 'closed'" size="tiny" type="info" @click="$router.push(`/admin/live/${t.id}`)">📺 实时大屏</n-button>
                 <n-button size="tiny" @click="viewTask = t">查看成绩</n-button>
+                <n-button size="tiny" @click="exportTaskAllCsv(t)">导出成绩</n-button>
                 <n-button size="tiny" @click="editTask(t)">编辑</n-button>
                 <n-button v-if="t.status === 'open'" size="tiny" @click="setTaskStatus(t, 'closed')">截止</n-button>
                 <n-button v-if="t.status === 'closed'" size="tiny" type="warning" @click="openReopen(t)">重新开启</n-button>
