@@ -131,6 +131,7 @@ async function resetPwd(s) {
 async function removeStudent(s) {
   const { data, error } = await supabase.rpc('fn_delete_student', { p_actor: user.user.id, p_user_id: s.id })
   if (error || !data?.ok) return message.error('删除失败：' + (error?.message || data?.msg || '未知错误'))
+  students.value = students.value.filter(x => x.id !== s.id)
   message.success('已删除')
   loadAll()
 }
@@ -158,8 +159,9 @@ async function bulkDeleteStudents() {
   if (!ids.length) return
   const { data, error } = await supabase.rpc('fn_delete_students', { p_actor: user.user.id, p_ids: ids })
   if (error || !data?.ok) return message.error('批量删除失败：' + (error?.message || data?.msg || '未知错误'))
+  students.value = students.value.filter(x => !ids.includes(x.id))
   stuSelected.value = new Set()
-  message.success(`已删除 ${ids.length} 名学生`)
+  message.success(`已删除 ${data.deleted ?? ids.length} 名学生`)
   loadAll()
 }
 async function deleteClass(classId) {
@@ -167,6 +169,7 @@ async function deleteClass(classId) {
   if (ids.length) {
     const { data, error } = await supabase.rpc('fn_delete_students', { p_actor: user.user.id, p_ids: ids })
     if (error || !data?.ok) return message.error('删除学生失败：' + (error?.message || data?.msg || '未知错误'))
+    students.value = students.value.filter(x => !ids.includes(x.id))
   }
   await supabase.from('classes').delete().eq('id', classId)
   stuClassFilter.value = null

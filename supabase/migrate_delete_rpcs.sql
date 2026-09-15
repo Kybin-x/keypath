@@ -3,40 +3,61 @@
 
 create or replace function fn_delete_student(p_actor uuid, p_user_id uuid)
 returns jsonb language plpgsql security definer as $$
-declare actor_role text;
+declare
+  actor_role text;
+  deleted_count int;
 begin
   select role into actor_role from users where id = p_actor;
   if actor_role not in ('teacher', 'super') then
     return jsonb_build_object('ok', false, 'msg', '无权限');
   end if;
-  delete from users where id = p_user_id and role = 'student';
-  return jsonb_build_object('ok', true);
+  delete from users where id = p_user_id;
+  get diagnostics deleted_count = row_count;
+  if deleted_count = 0 then
+    return jsonb_build_object('ok', false, 'msg', '未找到该学生记录');
+  end if;
+  return jsonb_build_object('ok', true, 'deleted', deleted_count);
+exception when others then
+  return jsonb_build_object('ok', false, 'msg', sqlerrm);
 end;
 $$;
 
 create or replace function fn_delete_students(p_actor uuid, p_ids uuid[])
 returns jsonb language plpgsql security definer as $$
-declare actor_role text;
+declare
+  actor_role text;
+  deleted_count int;
 begin
   select role into actor_role from users where id = p_actor;
   if actor_role not in ('teacher', 'super') then
     return jsonb_build_object('ok', false, 'msg', '无权限');
   end if;
-  delete from users where id = any(p_ids) and role = 'student';
-  return jsonb_build_object('ok', true);
+  delete from users where id = any(p_ids);
+  get diagnostics deleted_count = row_count;
+  return jsonb_build_object('ok', true, 'deleted', deleted_count);
+exception when others then
+  return jsonb_build_object('ok', false, 'msg', sqlerrm);
 end;
 $$;
 
 create or replace function fn_delete_teacher(p_actor uuid, p_user_id uuid)
 returns jsonb language plpgsql security definer as $$
-declare actor_role text;
+declare
+  actor_role text;
+  deleted_count int;
 begin
   select role into actor_role from users where id = p_actor;
   if actor_role != 'super' then
     return jsonb_build_object('ok', false, 'msg', '仅超管可删除教师');
   end if;
   delete from users where id = p_user_id and role in ('teacher', 'super');
-  return jsonb_build_object('ok', true);
+  get diagnostics deleted_count = row_count;
+  if deleted_count = 0 then
+    return jsonb_build_object('ok', false, 'msg', '未找到该教师记录');
+  end if;
+  return jsonb_build_object('ok', true, 'deleted', deleted_count);
+exception when others then
+  return jsonb_build_object('ok', false, 'msg', sqlerrm);
 end;
 $$;
 
