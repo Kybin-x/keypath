@@ -207,15 +207,9 @@ watch(pos, () => nextTick(() => {
   const cur = textBox.value?.querySelector('.ch.cur')
   const box = textBox.value
   if (!cur || !box) return
-  const boxRect = box.getBoundingClientRect()
-  const visH = box.clientHeight
-  // 光标保持在可视区 20%~50% 之间：上方留 20% 供回顾，下方留 50% 预览后续内容
-  const minTop = Math.floor(visH * 0.20)
-  const maxBot = Math.floor(visH * 0.50)
-  const curTop = cur.getBoundingClientRect().top - boxRect.top
-  const curBot = curTop + cur.getBoundingClientRect().height
-  if (curBot > maxBot) box.scrollTop += curBot - maxBot
-  else if (curTop < minTop) box.scrollTop -= minTop - curTop
+  // offsetTop 是相对于容器顶部边框的绝对位置，不受滚动影响，直接计算目标 scrollTop
+  // 保持光标在可视区 30% 处，下方始终有 70% 空间预览后续内容
+  box.scrollTop = Math.max(0, cur.offsetTop - Math.floor(box.clientHeight * 0.30))
 }))
 const remainSec = computed(() => props.durationSec > 0 ? Math.max(0, props.durationSec - elapsed.value) : null)
 const live = computed(() => stats())
@@ -318,8 +312,8 @@ const pinyinHints = computed(() => {
 .stat .val { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .stat .val.time { color: var(--kp-primary, #4F46E5); }
 .stat .val.err { color: #ef4444; }
-.textarea-wrap { position: relative; padding: 24px 28px; border-radius: 12px; min-height: 130px;
-  max-height: 55vh; overflow-y: auto; scroll-padding: 60px;
+.textarea-wrap { position: relative; padding: 24px 28px 60vh; border-radius: 12px; min-height: 130px;
+  max-height: 55vh; overflow-y: auto;
   background: rgba(255,255,255,.78); border: 2px solid rgba(127,127,127,.15); cursor: text;
   word-break: break-all; white-space: pre-wrap; }
 .dark .textarea-wrap { background: rgba(0,0,0,.35); }
