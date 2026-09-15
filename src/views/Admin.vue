@@ -1,6 +1,7 @@
 <script setup>
 // 教学管理：班级总览 / 学生管理 / 文稿管理 / 任务管理 / 出勤 / 成就配置 / 教师账号(超管)
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import * as echarts from 'echarts'
 import {
   NCard, NTabs, NTabPane, NButton, NSpace, NInput, NSelect, NDatePicker, NInputNumber, NSwitch,
   NRadioGroup, NRadioButton, NTag, NEmpty, NSpin, NModal, NTransfer, NStatistic, NGrid, NGi,
@@ -135,6 +136,61 @@ async function removeStudent(s) {
   message.success('已删除')
   loadAll()
 }
+// ---- 导入折叠 ----
+const showImport = ref(false)
+
+// ---- 班级仪表盘 ----
+const classDashboard = computed(() => classes.value.map(c => ({
+  ...c,
+  count: students.value.filter(s => s.class_id === c.id).length
+})))
+
+// ---- 学生详情（打字曲线） ----
+const viewStu = ref(null)
+const stuChartEl = ref(null)
+let stuChart = null
+
+const stuDetailData = computed(() => {
+  if (!viewStu.value) return []
+  const sid = viewStu.value.id
+  const practiceLogs = logs.value
+    .filter(l => l.user_id === sid)
+    .map(l => ({ date: l.created_at, cpm: Number(l.cpm), accuracy: Number(l.accuracy) }))
+  const taskLogs = records.value
+    .filter(r => r.student_id === sid)
+    .map(r => ({ date: r.submitted_at, cpm: Number(r.cpm), accuracy: Number(r.accuracy) }))
+  return [...practiceLogs, ...taskLogs].sort((a, b) => new Date(a.date) - new Date(b.date))
+})
+
+function renderStuChart() {
+  if (!stuChartEl.value || !stuDetailData.value.length) return
+  if (!stuChart) stuChart = echarts.init(stuChartEl.value)
+  const data = stuDetailData.value
+  stuChart.setOption({
+    tooltip: { trigger: 'axis' },
+    legend: { data: ['CPM', '准确率%'] },
+    grid: { left: 52, right: 52, top: 36, bottom: 56 },
+    xAxis: {
+      type: 'category',
+      data: data.map(r => new Date(r.date).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })),
+      axisLabel: { rotate: 30, fontSize: 10 },
+    },
+    yAxis: [
+      { type: 'value', name: 'CPM', minInterval: 1 },
+      { type: 'value', name: '准确率%', min: 0, max: 100 },
+    ],
+    series: [
+      { name: 'CPM', type: 'line', smooth: true, data: data.map(r => Math.round(r.cpm)) },
+      { name: '准确率%', type: 'line', smooth: true, yAxisIndex: 1, data: data.map(r => r.accuracy), itemStyle: { color: '#10b981' } },
+    ],
+  })
+}
+
+watch(viewStu, val => {
+  if (!val) { stuChart?.dispose(); stuChart = null }
+  else nextTick(renderStuChart)
+})
+
 const stuClassFilter = ref(null)
 const filteredStudents = computed(() => stuClassFilter.value
   ? students.value.filter(s => s.class_id === stuClassFilter.value) : students.value)
@@ -567,17 +623,45 @@ const STATUS_TAG = { draft: ['草稿', 'default'], open: ['进行中', 'success'
 
         <!-- 学生管理 -->
         <n-tab-pane name="students" tab="👥 学生管理">
-          <n-card size="small" title="批量导入学生" style="margin-bottom: 14px">
-            <p style="opacity:.65;font-size:13px;margin-top:0">每行一名学生：<code>学号,姓名,班级</code>（支持逗号/Tab 分隔，班级不存在会自动创建；默认密码 123）</p>
-            <n-space style="margin-bottom: 10px">
-              <n-button size="small" @click="downloadTemplate">📥 下载导入模板</n-button>
-              <n-upload :show-file-list="false" accept=".csv,.txt" :custom-request="importFromFile">
-                <n-button size="small">📂 从 CSV / TXT 文件导入</n-button>
-              </n-upload>
-            </n-space>
-            <n-input v-model:value="importText" type="textarea" :rows="5" placeholder="20240101,张三,电商2401&#10;20240102,李四,电商2401" />
-            <n-button type="primary" style="margin-top: 10px" :loading="importing" @click="doImport">导入</n-button>
-          </n-card>
+          <!-- 导入（折叠） -->
+          <div style="margin-bottom: 14px">
+            <n-button size="small" @click="showImport = !showImport" style="margin-bottom: 8px">
+              {{ showImport ? '▲ 收起导入' : '▼ 批量导入学生' }}
+            </n-button>
+            <n-card v-if="showImport" size="small">
+              <p style="opacity:.65;font-size:13px;margin-top:0">每行一名学生：<code>学号,姓名,班级</code>（支持逗号/Tab 分隔，班级不存在会自动创建；默认密码 123）</p>
+              <n-space style="margin-bottom: 10px">
+                <n-button size="small" @click="downloadTemplate">📥 下载导入模板</n-button>
+                <n-upload :show-file-list="false" accept=".csv,.txt" :custom-request="importFromFile">
+                  <n-button size="small">📂 从 CSV / TXT 文件导入</n-button>
+                </n-upload>
+              </n-space>
+              <n-input v-model:value="importText" type="textarea" :rows="5" placeholder="20240101,张三,电商2401&#10;20240102,李四,电商2401" />
+              <n-button type="primary" style="margin-top: 10px" :loading="importing" @click="doImport">导入</n-button>
+            </n-card>
+          </div>
+
+          <!-- 班级仪表盘 -->
+          <div v-if="classDashboard.length" style="margin-bottom: 14px">
+            <div style="font-size:13px;opacity:.55;margin-bottom:8px">
+              共 {{ classDashboard.length }} 个班级 · {{ students.length }} 名学生
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px">
+              <div v-for="c in classDashboard" :key="c.id"
+                @click="stuClassFilter = stuClassFilter === c.id ? null : c.id"
+                :style="{
+                  padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px',
+                  border: stuClassFilter === c.id ? '2px solid var(--kp-primary,#4F46E5)' : '2px solid rgba(127,127,127,.15)',
+                  background: stuClassFilter === c.id ? 'rgba(79,70,229,.08)' : 'rgba(127,127,127,.05)',
+                  transition: 'all .15s'
+                }">
+                <div style="font-weight:600">{{ c.name }}</div>
+                <div style="opacity:.6;margin-top:2px">{{ c.count }} 人</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 学生列表 -->
           <n-card size="small" title="学生列表">
             <n-space align="center" style="margin-bottom: 10px">
               <n-select v-model:value="stuClassFilter" clearable placeholder="按班级筛选" style="width: 200px"
@@ -607,7 +691,11 @@ const STATUS_TAG = { draft: ['草稿', 'default'], open: ['进行中', 'success'
               <tbody>
                 <tr v-for="s in filteredStudents" :key="s.id" :style="stuSelected.has(s.id) ? 'background:rgba(79,70,229,.06)' : ''">
                   <td><n-checkbox :checked="stuSelected.has(s.id)" @update:checked="() => toggleStu(s.id)" /></td>
-                  <td>{{ s.student_no }}</td><td>{{ s.name }}</td><td>{{ classMap[s.class_id] || '—' }}</td>
+                  <td>{{ s.student_no }}</td>
+                  <td>
+                    <span @click="viewStu = s" style="cursor:pointer;color:var(--kp-primary,#4F46E5);font-weight:500">{{ s.name }}</span>
+                  </td>
+                  <td>{{ classMap[s.class_id] || '—' }}</td>
                   <td>
                     <n-space size="small">
                       <n-button size="tiny" @click="resetPwd(s)">重置密码</n-button>
@@ -618,6 +706,21 @@ const STATUS_TAG = { draft: ['草稿', 'default'], open: ['进行中', 'success'
               </tbody>
             </n-table>
           </n-card>
+
+          <!-- 学生打字曲线弹窗 -->
+          <n-modal :show="!!viewStu" preset="card" style="max-width:700px"
+            :title="`${viewStu?.name || ''} · 打字曲线`"
+            @update:show="v => !v && (viewStu = null)">
+            <div v-if="!stuDetailData.length" style="text-align:center;padding:40px 0;opacity:.5">暂无练习记录</div>
+            <div v-else>
+              <div style="font-size:13px;opacity:.55;margin-bottom:10px">
+                共 {{ stuDetailData.length }} 次记录 ·
+                最高 {{ Math.max(...stuDetailData.map(r => r.cpm)).toFixed(0) }} CPM ·
+                最近准确率 {{ stuDetailData[stuDetailData.length - 1]?.accuracy }}%
+              </div>
+              <div ref="stuChartEl" style="width:100%;height:300px" />
+            </div>
+          </n-modal>
         </n-tab-pane>
 
         <!-- 文稿管理 -->
