@@ -146,13 +146,21 @@ function onKeydown(e) {
   if (e.key === 'Enter' && !composing.value) {
     e.preventDefault(); consume('\n'); return
   }
-  if (e.key === 'Tab') e.preventDefault()
+  if (e.key === 'Tab') { e.preventDefault(); return }
+}
+
+// IME 自动括号补全过滤：macOS 中文输入法"自动配对括号"开启时，
+// 输入 ( 会提交 （） 两个字符，这里只保留第一个（用户实际输入的那个）
+const BRACKET_PAIRS = { '(': ')', '（': '）', '[': ']', '【': '】', '{': '}', '｛': '｝' }
+function stripAutoPair(v) {
+  if (v.length === 2 && BRACKET_PAIRS[v[0]] === v[1]) return v[0]
+  return v
 }
 
 function onInput(e) {
   if (composing.value) { compBuffer.value = e.target.value; return }
   const v = e.target.value
-  if (v) consume(v)
+  if (v) consume(stripAutoPair(v))
   e.target.value = ''
 }
 function onCompStart() { composing.value = true }
@@ -161,7 +169,7 @@ function onCompEnd(e) {
   const v = e.target.value
   e.target.value = ''
   compBuffer.value = ''
-  if (v) consume(v)
+  if (v) consume(stripAutoPair(v))
 }
 
 function stats() {
