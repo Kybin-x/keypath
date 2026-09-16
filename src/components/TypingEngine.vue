@@ -52,7 +52,6 @@ function reset() {
   if (inputEl.value) inputEl.value.value = ''
 }
 watch(baseText, reset)
-onMounted(() => { reset(); if (props.autoFocus) focus() })
 onBeforeUnmount(() => clearInterval(timer))
 
 function focus() { inputEl.value?.focus() }
@@ -166,8 +165,9 @@ function onCompEnd(e) {
 }
 
 function stats() {
-  // 最小 activeSec 按字符数限制：不能超过 10字/秒（600CPM）的理论上限
-  const active = Math.max(activeSec.value, correctTotal.value / 10, 0.5)
+  // 用真实流逝时间（elapsed）计算 CPM：停顿时间计入，速度自然下降
+  // 下限：max(elapsed, 已打字数/10字·秒, 0.5) 防止刚开始时天文数字
+  const active = Math.max(elapsed.value, correctTotal.value / 10, 0.5)
   const minutes = active / 60
   const cpm = correctTotal.value / minutes
   const wpm = (correctTotal.value / 5) / minutes
@@ -204,6 +204,21 @@ const view = computed(() => {
     return { ch: ch === '\n' ? '⏎\n' : ch, idx, state: idx === pos.value ? 'cur' : typedStates.value[idx], nl: ch === '\n' }
   })
 })
+function updateInputPos() {
+  const cur = textBox.value?.querySelector('.ch.cur')
+  const input = inputEl.value
+  if (!cur || !input) return
+  // getBoundingClientRect 已计入 textBox 的 scrollTop，直接转换到 outer 坐标
+  const curRect = cur.getBoundingClientRect()
+  const outerEl = input.parentElement
+  if (!outerEl) return
+  const outerRect = outerEl.getBoundingClientRect()
+  input.style.left = (curRect.left - outerRect.left) + 'px'
+  input.style.top = (curRect.top - outerRect.top) + 'px'
+  input.style.width = Math.max(curRect.width, 4) + 'px'
+  input.style.height = Math.max(curRect.height, 4) + 'px'
+}
+
 watch(pos, () => nextTick(() => {
   const cur = textBox.value?.querySelector('.ch.cur')
   const box = textBox.value
@@ -211,7 +226,10 @@ watch(pos, () => nextTick(() => {
   // offsetTop 是相对于容器顶部边框的绝对位置，不受滚动影响，直接计算目标 scrollTop
   // 保持光标在可视区 30% 处，下方始终有 70% 空间预览后续内容
   box.scrollTop = Math.max(0, cur.offsetTop - Math.floor(box.clientHeight * 0.30))
+  // 滚动后再更新 input 位置，确保 getBoundingClientRect 已反映新的 scrollTop
+  updateInputPos()
 }))
+onMounted(() => { reset(); if (props.autoFocus) focus(); nextTick(updateInputPos) })
 const remainSec = computed(() => props.durationSec > 0 ? Math.max(0, props.durationSec - elapsed.value) : null)
 const live = computed(() => stats())
 const nextKey = computed(() => fullTarget.value[pos.value] || '')
@@ -330,7 +348,8 @@ const pinyinHints = computed(() => {
 @keyframes blink { 50% { filter: brightness(1.4); } }
 @keyframes shake { 25% { transform: translateX(-2px); } 75% { transform: translateX(2px); } }
 .textarea-outer { position: relative; }
-.ghost-input { position: absolute; opacity: 0; left: 0; top: 0; width: 100%; height: 100%; border: none; cursor: text; z-index: 1; }
+/* ghost-input 跟随光标字符位置，让输入法候选框出现在正确位置 */
+.ghost-input { position: absolute; opacity: 0; left: 0; top: 0; width: 4px; height: 24px; border: none; z-index: 1; pointer-events: none; }
 .focus-hint { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   background: rgba(127,127,127,.25); backdrop-filter: blur(2px); border-radius: 12px;
   font-size: 16px; font-weight: 600; pointer-events: none; z-index: 2; }
