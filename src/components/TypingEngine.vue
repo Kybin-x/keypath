@@ -261,13 +261,17 @@ const pinyinHints = computed(() => {
       <div class="stat" v-if="loops"><span class="label">循环</span><span class="val">×{{ loops + 1 }}</span></div>
     </div>
 
-    <div ref="textBox" class="textarea-wrap" :style="{ fontSize: settings.fontPx + 'px', fontFamily: settings.fontFamily, lineHeight: settings.lineHeight }">
-      <span v-for="c in view" :key="c.idx" class="ch" :class="[c.state, { nl: c.nl }]">{{ c.ch }}</span>
+    <!-- 包装层：ghost-input 放在 textarea-wrap 的外部同级，防止 IME 触发内部滚动 -->
+    <div class="textarea-outer">
+      <div ref="textBox" class="textarea-wrap" :style="{ fontSize: settings.fontPx + 'px', fontFamily: settings.fontFamily, lineHeight: settings.lineHeight }">
+        <span v-for="c in view" :key="c.idx" class="ch" :class="[c.state, { nl: c.nl }]">{{ c.ch }}</span>
+        <div v-if="!focused && !finished" class="focus-hint">点击此处开始打字</div>
+        <div v-if="composing && compBuffer" class="ime-buffer">{{ compBuffer }}</div>
+      </div>
+      <!-- ghost-input 与 textarea-wrap 同级，覆盖在上方捕获键盘事件，但不在滚动容器内 -->
       <input ref="inputEl" class="ghost-input" autocomplete="off" autocapitalize="off" spellcheck="false"
         @keydown="onKeydown" @input="onInput" @compositionstart="onCompStart" @compositionend="onCompEnd"
         @focus="focused = true" @blur="focused = false" />
-      <div v-if="!focused && !finished" class="focus-hint">点击此处开始打字</div>
-      <div v-if="composing && compBuffer" class="ime-buffer">{{ compBuffer }}</div>
     </div>
     <Transition name="meaning">
       <div v-if="flash" :key="flash.id" class="meaning-flash">
@@ -325,10 +329,11 @@ const pinyinHints = computed(() => {
 .ch.nl { opacity: .3; }
 @keyframes blink { 50% { filter: brightness(1.4); } }
 @keyframes shake { 25% { transform: translateX(-2px); } 75% { transform: translateX(2px); } }
-.ghost-input { position: absolute; opacity: 0; left: 0; top: 0; width: 100%; height: 100%; border: none; cursor: text; }
+.textarea-outer { position: relative; }
+.ghost-input { position: absolute; opacity: 0; left: 0; top: 0; width: 100%; height: 100%; border: none; cursor: text; z-index: 1; }
 .focus-hint { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   background: rgba(127,127,127,.25); backdrop-filter: blur(2px); border-radius: 12px;
-  font-size: 16px; font-weight: 600; pointer-events: none; }
+  font-size: 16px; font-weight: 600; pointer-events: none; z-index: 2; }
 .ime-buffer { position: absolute; bottom: -34px; left: 12px; padding: 2px 10px; border-radius: 6px;
   background: var(--kp-primary, #4F46E5); color: #fff; font-size: 14px; }
 .meaning-flash { position: sticky; bottom: 8px; margin: 10px auto 0; width: fit-content;
