@@ -8,6 +8,32 @@ const LEFT_HAND = 'qwertasdfgzxcvb'
 const RIGHT_HAND = 'yuiophjkl;nm,./'
 const WEAK_FINGERS = 'qazplo;.wsxik,' // 小指/无名指
 
+// 指法专项生成器：每个键重复 reps 次，正反顺序交替 cycles 遍，末尾接随机混合组
+function fDrill(keys, reps = 7, cycles = 3) {
+  const out = []
+  for (let c = 0; c < cycles; c++) {
+    const ks = c % 2 === 1 ? [...keys].reverse() : [...keys]
+    for (const k of ks) out.push(k.repeat(reps))
+  }
+  for (let i = 0; i < 14; i++) {
+    let g = ''
+    for (let j = 0; j < 4; j++) g += keys[Math.floor(Math.random() * keys.length)]
+    out.push(g)
+  }
+  return out.join(' ')
+}
+
+// 新手入门序列：按列（竖向）顺序过一遍所有手指，每键重复 6 次
+function seqDrill() {
+  const cols = [
+    ['q','a','z'], ['w','s','x'], ['e','d','c'],
+    ['r','f','v'], ['t','g','b'],
+    ['y','h','n'], ['u','j','m'],
+    ['i','k'],     ['o','l'],    ['p',';'],
+  ]
+  return cols.flatMap(col => col.map(k => k.repeat(6))).join(' ')
+}
+
 function gen(pool, groups = 30, groupLen = 4) {
   const out = []
   for (let i = 0; i < groups; i++) {
@@ -39,9 +65,22 @@ export const KEY_DRILLS = [
   { key: 'case', cat: '进阶练习', title: '大小写切换', gen: () => genCase() },
   { key: 'symcombo', cat: '进阶练习', title: '常用符号组合', gen: () => Array.from({ length: 18 }, () => ['()', '[]', '{}', '<>', '->', '=>', '!=', '==', '&&', '||', '+=', '::'][Math.floor(Math.random() * 12)] + gen(ALL_LETTERS, 1, 3)).join(' ') },
   { key: 'numsym', cat: '进阶练习', title: '数字符号混合', gen: () => gen(NUMBERS + SYMBOLS, 26, 4) },
-  { key: 'left', cat: '专项练习', title: '左手专项', gen: () => gen(LEFT_HAND) },
-  { key: 'right', cat: '专项练习', title: '右手专项', gen: () => gen(RIGHT_HAND) },
-  { key: 'weak', cat: '专项练习', title: '弱指专项（小指/无名指）', gen: () => gen(WEAK_FINGERS) },
+  { key: 'left',  cat: '专项练习', title: '左手专项',          gen: () => gen(LEFT_HAND) },
+  { key: 'right', cat: '专项练习', title: '右手专项',          gen: () => gen(RIGHT_HAND) },
+  { key: 'weak',  cat: '专项练习', title: '弱指专项（小指/无名指）', gen: () => gen(WEAK_FINGERS) },
+
+  // ── 指法专项：逐手指练习 ──
+  { key: 'f-seq',  cat: '指法专项', title: '🌟 新手入门序列（全指列）', gen: seqDrill },
+  { key: 'f-lp',  cat: '指法专项', title: '左小指   Q · A · Z',      gen: () => fDrill(['q','a','z']) },
+  { key: 'f-lr',  cat: '指法专项', title: '左无名指  W · S · X',      gen: () => fDrill(['w','s','x']) },
+  { key: 'f-lm',  cat: '指法专项', title: '左中指   E · D · C',       gen: () => fDrill(['e','d','c']) },
+  { key: 'f-li',  cat: '指法专项', title: '左食指主行 F · G',          gen: () => fDrill(['f','g']) },
+  { key: 'f-li2', cat: '指法专项', title: '左食指扩展 R · T · V · B',  gen: () => fDrill(['r','t','v','b','f','g']) },
+  { key: 'f-ri',  cat: '指法专项', title: '右食指主行 H · J',          gen: () => fDrill(['h','j']) },
+  { key: 'f-ri2', cat: '指法专项', title: '右食指扩展 Y · U · N · M',  gen: () => fDrill(['y','u','n','m','h','j']) },
+  { key: 'f-rm',  cat: '指法专项', title: '右中指   I · K',            gen: () => fDrill(['i','k']) },
+  { key: 'f-rr',  cat: '指法专项', title: '右无名指  O · L',           gen: () => fDrill(['o','l']) },
+  { key: 'f-rp',  cat: '指法专项', title: '右小指   P · ;',            gen: () => fDrill(['p',';']) },
 ]
 
 // 本地兜底文稿（与 schema.sql 种子一致的精简版）
