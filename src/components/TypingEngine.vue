@@ -289,7 +289,7 @@ const pinyinHints = computed(() => {
 
     <!-- 包装层：ghost-input 放在 textarea-wrap 的外部同级，防止 IME 触发内部滚动 -->
     <div class="textarea-outer">
-      <div ref="textBox" class="textarea-wrap" :class="{ 'kb-open': kbVisible && showKeyboard && !isZh }" :style="{ fontSize: settings.fontPx + 'px', fontFamily: settings.fontFamily, lineHeight: settings.lineHeight }">
+      <div ref="textBox" class="textarea-wrap" :style="{ fontSize: settings.fontPx + 'px', fontFamily: settings.fontFamily, lineHeight: settings.lineHeight, ...(kbVisible && showKeyboard && !isZh ? { maxHeight: '26vh', minHeight: '80px', paddingBottom: '120px' } : {}) }">
         <span v-for="c in view" :key="c.idx" class="ch" :class="[c.state, { nl: c.nl }]">{{ c.ch }}</span>
         <div v-if="!focused && !finished" class="focus-hint">点击此处开始打字</div>
         <div v-if="composing && compBuffer" class="ime-buffer">{{ compBuffer }}</div>
