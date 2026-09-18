@@ -289,7 +289,7 @@ const pinyinHints = computed(() => {
 
     <!-- 包装层：ghost-input 放在 textarea-wrap 的外部同级，防止 IME 触发内部滚动 -->
     <div class="textarea-outer">
-      <div ref="textBox" class="textarea-wrap" :style="{ fontSize: settings.fontPx + 'px', fontFamily: settings.fontFamily, lineHeight: settings.lineHeight }">
+      <div ref="textBox" class="textarea-wrap" :class="{ 'kb-open': kbVisible && showKeyboard && !isZh }" :style="{ fontSize: settings.fontPx + 'px', fontFamily: settings.fontFamily, lineHeight: settings.lineHeight }">
         <span v-for="c in view" :key="c.idx" class="ch" :class="[c.state, { nl: c.nl }]">{{ c.ch }}</span>
         <div v-if="!focused && !finished" class="focus-hint">点击此处开始打字</div>
         <div v-if="composing && compBuffer" class="ime-buffer">{{ compBuffer }}</div>
@@ -347,6 +347,7 @@ const pinyinHints = computed(() => {
   max-height: 55vh; overflow-y: auto;
   background: rgba(255,255,255,.78); border: 2px solid rgba(127,127,127,.15); cursor: text;
   word-break: break-all; white-space: pre-wrap; }
+.textarea-wrap.kb-open { max-height: 26vh; min-height: 80px; }
 .dark .textarea-wrap { background: rgba(0,0,0,.35); }
 .ch { opacity: .55; border-radius: 3px; transition: background .08s; }
 .ch.ok { opacity: 1; color: #10b981; }
