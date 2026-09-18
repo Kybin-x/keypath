@@ -122,6 +122,7 @@ function noteApplyChars(chars) {
     if (props.loop && props.durationSec > 0) {
       loops.value++
       fullTarget.value += '\n' + baseText.value
+      pos.value++ // 静默跳过 '\n' 分隔符，不计入统计，避免下一个字符误判为错误
     } else {
       finish()
     }
